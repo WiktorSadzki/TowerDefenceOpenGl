@@ -16,7 +16,8 @@ void Game::update(float dt) {
 
 void Game::render() {
     glBegin(GL_QUADS);
-    glColor3f(0.2f, 0.3f, 0.2f);
+    glColor3f(0.4f, 0.8f, 0.4f);
+    glNormal3f(0.0f, 1.0f, 0.0f);
     glVertex3f(-50.0f, 0.0f, -50.0f); glVertex3f(50.0f, 0.0f, -50.0f);
     glVertex3f(50.0f, 0.0f, 50.0f); glVertex3f(-50.0f, 0.0f, 50.0f);
     glEnd();
