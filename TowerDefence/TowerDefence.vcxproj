@@ -71,8 +71,8 @@
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
-    <LibraryPath>C:\Users\sadzk\OneDrive\Dokumenty\libraries\glew-2.3.1\lib\Release\x64;C:\Users\sadzk\OneDrive\Dokumenty\libraries\glfw-3.4.bin.WIN64\lib-vc2022;$(LibraryPath)</LibraryPath>
-    <IncludePath>C:\Users\sadzk\OneDrive\Dokumenty\libraries\glm;C:\Users\sadzk\OneDrive\Dokumenty\libraries\glfw-3.4.bin.WIN64\include;C:\Users\sadzk\OneDrive\Dokumenty\libraries\glew-2.3.1\include;$(IncludePath)</IncludePath>
+    <LibraryPath>C:\libraries\glew-2.3.1\lib\Release\x64;C:\libraries\glfw-3.4.bin.WIN64\lib-vc2022;$(LibraryPath)</LibraryPath>
+    <IncludePath>C:\libraries\glm;C:\libraries\glfw-3.4.bin.WIN64\include;C:\libraries\glew-2.3.1\include;$(IncludePath)</IncludePath>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <LibraryPath>C:\Users\sadzk\OneDrive\Dokumenty\libraries\glew-2.3.1\lib\Release\x64;C:\Users\sadzk\OneDrive\Dokumenty\libraries\glfw-3.4.bin.WIN64\lib-vc2022;$(LibraryPath)</LibraryPath>
@@ -113,12 +113,12 @@
       <PreprocessorDefinitions>GLEW_STATIC</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
-      <AdditionalIncludeDirectories>C:\Users\sadzk\OneDrive\Dokumenty\libraries\glfw-3.4.bin.WIN64\lib-vc2022;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>C:\libraries\glfw-3.4.bin.WIN64\lib-vc2022;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalLibraryDirectories>C:\Users\sadzk\OneDrive\Dokumenty\libraries\glfw-3.4.bin.WIN64\lib-vc2022;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalLibraryDirectories>C:\libraries\glfw-3.4.bin.WIN64\lib-vc2022;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <AdditionalDependencies>glfw3.lib;glew32s.lib;opengl32.lib;user32.lib;gdi32.lib;shell32.lib;glu32.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>

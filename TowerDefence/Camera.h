@@ -9,8 +9,8 @@ public:
     float angleX = 50.0f;
     float angleY = 0.0f;
     float zoom = 22.0f;
-    float cx = 10.0f;
-    float cz = 10.0f;
+    float cx = 0.0f;
+    float cz = 0.0f;
 
     void apply() {
         glLoadIdentity();
@@ -28,26 +28,28 @@ public:
     }
 
     bool screenToTile(int sx, int sy, int w, int h, float& outX, float& outZ) {
-        float ndcX = (2.0f * sx / w) - 1.0f;
-        float ndcY = 1.0f - (2.0f * sy / h);
+        GLdouble modelview[16], projection[16];
+        GLint viewport[4] = { 0, 0, w, h };
+        glGetDoublev(GL_MODELVIEW_MATRIX, modelview);
+        glGetDoublev(GL_PROJECTION_MATRIX, projection);
 
-        float pitch = angleX * 3.14159f / 180.0f;
-        float yaw = angleY * 3.14159f / 180.0f;
+        double winY = (double)h - (double)sy - 1.0;
 
-        float eyeX = cx - sinf(yaw) * cosf(pitch) * zoom;
-        float eyeY = sinf(pitch) * zoom;
-        float eyeZ = cz - cosf(yaw) * cosf(pitch) * zoom;
+        double nearX, nearY, nearZ;
+        double farX, farY, farZ;
+        gluUnProject(sx, winY, 0.0, modelview, projection, viewport, &nearX, &nearY, &nearZ);
+        gluUnProject(sx, winY, 1.0, modelview, projection, viewport, &farX, &farY, &farZ);
 
-        float dirX = ndcX * cosf(yaw) - ndcY * sinf(pitch) * sinf(yaw);
-        float dirZ = ndcX * sinf(yaw) + ndcY * sinf(pitch) * cosf(yaw);
-        float dirY = -ndcY * cosf(pitch);
+        double dirX = farX - nearX;
+        double dirY = farY - nearY;
+        double dirZ = farZ - nearZ;
 
-        if (fabsf(dirY) < 0.001f) return false;
-        float t = -eyeY / dirY;
+        if (fabs(dirY) < 0.001) return false;
+        double t = -nearY / dirY;
         if (t < 0) return false;
 
-        outX = eyeX + dirX * t;
-        outZ = eyeZ + dirZ * t;
+        outX = (float)(nearX + dirX * t);
+        outZ = (float)(nearZ + dirZ * t);
         return true;
     }
 };
