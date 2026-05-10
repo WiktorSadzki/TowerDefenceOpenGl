@@ -80,6 +80,10 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
             g_camera.cx = 0.0f;
             g_camera.cz = 0.0f;
         }
+
+        if (key == GLFW_KEY_1) g_game.selectTowerType(0);
+        if (key == GLFW_KEY_2) g_game.selectTowerType(1);
+        if (key == GLFW_KEY_3) g_game.selectTowerType(2);
     }
 }
 
