@@ -1,0 +1,3 @@
+fast_runner 15.0 30.0
+tank_unit 5.0 150.0
+fast_runner 12.0 30.0
