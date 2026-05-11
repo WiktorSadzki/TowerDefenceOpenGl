@@ -71,12 +71,12 @@
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
-    <LibraryPath>$(ProjectDir)glfw\lib-vc2022;$(ProjectDir)glew\lib;C:\libraries\glew-2.3.1\lib\Release\x64;C:\libraries\glfw-3.4.bin.WIN64\lib-vc2022;$(LibraryPath)</LibraryPath>
-    <IncludePath>$(ProjectDir)\glm;$(ProjectDir)glew\include;$(ProjectDir)glad\include;$(ProjectDir)glfw\include;C:\libraries\glm;C:\libraries\glfw-3.4.bin.WIN64\include;C:\libraries\glew-2.3.1\include;$(IncludePath)</IncludePath>
+    <LibraryPath>$(ProjectDir)glut\lib\x64;$(ProjectDir)glfw\lib-vc2022;$(ProjectDir)glew\lib\Release\x64;$(ProjectDir)freeglut\lib\x64;C:\libraries\glew-2.3.1\lib\Release\x64;C:\libraries\glfw-3.4.bin.WIN64\lib-vc2022;$(LibraryPath)</LibraryPath>
+    <IncludePath>$(ProjectDir)glut\include;$(ProjectDir)glfw\include;$(ProjectDir)freeglut\include;$(ProjectDir)glew\include;$(ProjectDir)glm;$(ProjectDir)glad\include</IncludePath>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
-    <LibraryPath>$(ProjectDir)glfw\lib-vc2022;$(ProjectDir)glew\lib;C:\Users\sadzk\OneDrive\Dokumenty\libraries\glew-2.3.1\lib\Release\x64;C:\Users\sadzk\OneDrive\Dokumenty\libraries\glfw-3.4.bin.WIN64\lib-vc2022;$(LibraryPath)</LibraryPath>
-    <IncludePath>$(ProjectDir)\glm;$(ProjectDir)glew\include;$(ProjectDir)glad\include;$(ProjectDir)glfw\include;C:\Users\sadzk\OneDrive\Dokumenty\libraries\glm;C:\Users\sadzk\OneDrive\Dokumenty\libraries\glfw-3.4.bin.WIN64\include;C:\Users\sadzk\OneDrive\Dokumenty\libraries\glew-2.3.1\include;$(IncludePath)</IncludePath>
+    <LibraryPath>$(ProjectDir)glut\lib\x64;$(ProjectDir)glfw\lib-vc2022;$(ProjectDir)glew\lib\Release\x64;$(ProjectDir)freeglut\lib\x64;C:\Users\sadzk\OneDrive\Dokumenty\libraries\glew-2.3.1\lib\Release\x64;C:\Users\sadzk\OneDrive\Dokumenty\libraries\glfw-3.4.bin.WIN64\lib-vc2022;$(LibraryPath)</LibraryPath>
+    <IncludePath>$(ProjectDir)glut\include;$(ProjectDir)glfw\include;$(ProjectDir)freeglut\include;$(ProjectDir)glew\include;$(ProjectDir)glm;$(ProjectDir)glad\include</IncludePath>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ClCompile>
@@ -119,7 +119,7 @@
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <AdditionalLibraryDirectories>C:\libraries\glfw-3.4.bin.WIN64\lib-vc2022;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies>glfw3.lib;glew32s.lib;opengl32.lib;user32.lib;gdi32.lib;shell32.lib;glu32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>glfw3.lib;glew32s.lib;opengl32.lib;glu32.lib;freeglut.lib;user32.lib;gdi32.lib;shell32.lib;</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
@@ -137,7 +137,7 @@
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <AdditionalLibraryDirectories>C:\Users\sadzk\OneDrive\Dokumenty\libraries\glfw-3.4.bin.WIN64\lib-vc2022;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies>glfw3.lib;glew32s.lib;opengl32.lib;user32.lib;gdi32.lib;shell32.lib;glu32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>glfw3.lib;glew32s.lib;opengl32.lib;glu32.lib;freeglut.lib;user32.lib;gdi32.lib;shell32.lib;</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
@@ -149,9 +149,7 @@
     <ClInclude Include="Camera.h" />
     <ClInclude Include="Game.h" />
     <ClInclude Include="Road.h" />
-  </ItemGroup>
-  <ItemGroup>
-    <Text Include="waves.txt" />
+    <ClInclude Include="stb_image.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
