@@ -110,6 +110,8 @@ public:
     void selectTowerType(int list_index);
     void toggleBuildMode(int typeIndex);
 
+    GLuint shader_id = 0;
+    GLuint loadShader(const char* vertexPath, const char* fragmentPath);
 private:
     void renderHUD();
 };

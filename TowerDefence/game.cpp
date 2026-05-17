@@ -7,6 +7,7 @@
 #include <GL/glu.h>
 #include <GL/glut.h>
 #include "Game.h"
+#include <sstream>
 
 static float spawn_interval = 2.0f;
 static int   tower_cost_lookup[3] = { 20, 50, 80 };
@@ -63,6 +64,8 @@ void Game::init() {
     loadModels(troop_dir, "car.obj", troop_assets[0].mesh);
     loadModels(troop_dir, "tank.obj", troop_assets[1].mesh);
     loadModels(troop_dir, "helicopter.obj", troop_assets[2].mesh);
+
+    shader_id = loadShader("v_simplest.glsl", "f_simplest.glsl");
 }
 
 void Game::startNextWave() {
@@ -234,6 +237,24 @@ bool Game::raycastGroundPlane(float mx, float my, int winW, int winH, float& out
 }
 
 void Game::render() {
+    glUseProgram(shader_id);
+
+    GLint globalDirLoc = glGetUniformLocation(shader_id, "lightDirGlobal");
+    glUniform3f(globalDirLoc, 0.5f, 1.0f, 0.5f); 
+
+    GLint bulletActiveLoc = glGetUniformLocation(shader_id, "bulletActive");
+    GLint bulletPosLoc = glGetUniformLocation(shader_id, "bulletPos");
+    GLint bulletColorLoc = glGetUniformLocation(shader_id, "bulletColor");
+
+    if (!active_bullets.empty()) {
+        glUniform1f(bulletActiveLoc, 1.0f); 
+        glUniform3f(bulletPosLoc, active_bullets[0].x, active_bullets[0].y, active_bullets[0].z);
+        glUniform3f(bulletColorLoc, 1.0f, 0.8f, 0.2f); 
+    }
+    else {
+        glUniform1f(bulletActiveLoc, 0.0f); 
+    }
+
     glBegin(GL_QUADS);
     glColor3f(0.2f, 0.5f, 0.2f); glNormal3f(0, 1, 0);
     glVertex3f(-50, -0.01f, -50); glVertex3f(50, -0.01f, -50);
@@ -266,54 +287,19 @@ void Game::render() {
         glPopMatrix();
     }
 
-    glDisable(GL_LIGHTING);
+    glUseProgram(0);
 
-    for (size_t i = 0; i < active_bullets.size(); i++) {
-        const auto& b = active_bullets[i];
+    glDisable(GL_LIGHTING); 
+    for (const auto& b : active_bullets) {
         glPushMatrix();
         glTranslatef(b.x, b.y, b.z);
-        if (i == 0) glColor3f(1.0f, 0.8f, 0.2f); 
-        else        glColor3f(0.2f, 0.5f, 1.0f); 
-
+        glColor3f(1.0f, 0.8f, 0.2f); 
         float s = 0.15f;
         glBegin(GL_QUADS);
         glVertex3f(-s, -s, -s); glVertex3f(s, -s, -s); glVertex3f(s, s, -s); glVertex3f(-s, s, -s);
         glEnd();
         glPopMatrix();
-
-        if (i == 0) {
-            glEnable(GL_LIGHT1);
-            GLfloat bullet_yellow[] = { 1.0f, 0.8f, 0.2f, 1.0f };
-            glLightfv(GL_LIGHT1, GL_DIFFUSE, bullet_yellow);
-
-            GLfloat pos1[] = { b.x, b.y, b.z, 1.0f };
-            glLightfv(GL_LIGHT1, GL_POSITION, pos1);
-
-            glLightf(GL_LIGHT1, GL_CONSTANT_ATTENUATION, 0.5f);
-            glLightf(GL_LIGHT1, GL_LINEAR_ATTENUATION, 0.2f);
-            glLightf(GL_LIGHT1, GL_QUADRATIC_ATTENUATION, 0.05f);
-        }
-        else if (i == 1) {
-            glEnable(GL_LIGHT2);
-            GLfloat bullet_blue[] = { 0.2f, 0.5f, 1.0f, 1.0f };
-            glLightfv(GL_LIGHT2, GL_DIFFUSE, bullet_blue);
-
-            GLfloat pos2[] = { b.x, b.y, b.z, 1.0f };
-            glLightfv(GL_LIGHT2, GL_POSITION, pos2);
-
-            glLightf(GL_LIGHT2, GL_CONSTANT_ATTENUATION, 0.5f);
-            glLightf(GL_LIGHT2, GL_LINEAR_ATTENUATION, 0.2f);
-            glLightf(GL_LIGHT2, GL_QUADRATIC_ATTENUATION, 0.05f);
-        }
     }
-
-    if (active_bullets.empty()) {
-        glDisable(GL_LIGHT1);
-    }
-    if (active_bullets.size() < 2) {
-        glDisable(GL_LIGHT2);
-    }
-
     glEnable(GL_LIGHTING);
 
     if (isBuilding && !gameOver) {
@@ -512,4 +498,52 @@ void Game::tryPlaceTower(int mouse_x, int mouse_y, Camera& world_camera) {
     std::cout << "Postawiono wieze typu " << (int)selectedType
         << " | X=" << ghost_wx << " Z=" << ghost_wz
         << " | Zloto: " << gold << std::endl;
+}
+
+GLuint Game::loadShader(const char* vertexPath, const char* fragmentPath) {
+    std::string vertexCode;
+    std::string fragmentCode;
+    std::ifstream vShaderFile;
+    std::ifstream fShaderFile;
+
+    try {
+        vShaderFile.open(vertexPath);
+        fShaderFile.open(fragmentPath);
+        std::stringstream vShaderStream, fShaderStream;
+
+        vShaderStream << vShaderFile.rdbuf();
+        fShaderStream << fShaderFile.rdbuf();
+
+        vShaderFile.close();
+        fShaderFile.close();
+
+        vertexCode = vShaderStream.str();
+        fragmentCode = fShaderStream.str();
+    }
+    catch (std::ifstream::failure& e) {
+        std::cout << "Blad: Nie udalo sie wczytac plikow shadera!" << std::endl;
+    }
+
+    const char* vShaderCode = vertexCode.c_str();
+    const char* fShaderCode = fragmentCode.c_str();
+
+    GLuint vertex, fragment;
+
+    vertex = glCreateShader(GL_VERTEX_SHADER);
+    glShaderSource(vertex, 1, &vShaderCode, NULL);
+    glCompileShader(vertex);
+
+    fragment = glCreateShader(GL_FRAGMENT_SHADER);
+    glShaderSource(fragment, 1, &fShaderCode, NULL);
+    glCompileShader(fragment);
+
+    GLuint programID = glCreateProgram();
+    glAttachShader(programID, vertex);
+    glAttachShader(programID, fragment);
+    glLinkProgram(programID);
+
+    glDeleteShader(vertex);
+    glDeleteShader(fragment);
+
+    return programID;
 }
