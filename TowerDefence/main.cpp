@@ -183,8 +183,13 @@ int main(int argc, char** argv) {
 
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-        float light_source_pos[] = { 0.0f, 50.0f, 20.0f, 1.0f };
-        glLightfv(GL_LIGHT0, GL_POSITION, light_source_pos);
+        GLfloat light_ambient[] = { 0.2f, 0.2f, 0.2f, 1.0f }; 
+        GLfloat light_diffuse[] = { 0.8f, 0.8f, 0.8f, 1.0f }; 
+        GLfloat light_specular[] = { 1.0f, 1.0f, 1.0f, 1.0f }; 
+
+        glLightfv(GL_LIGHT0, GL_AMBIENT, light_ambient);
+        glLightfv(GL_LIGHT0, GL_DIFFUSE, light_diffuse);
+        glLightfv(GL_LIGHT0, GL_SPECULAR, light_specular);
 
         g_camera.apply();
         g_game.render();

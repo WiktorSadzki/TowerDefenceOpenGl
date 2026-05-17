@@ -267,14 +267,53 @@ void Game::render() {
     }
 
     glDisable(GL_LIGHTING);
-    for (const auto& b : active_bullets) {
-        glPushMatrix(); glTranslatef(b.x, b.y, b.z);
-        glColor3f(1, 1, 0);
+
+    for (size_t i = 0; i < active_bullets.size(); i++) {
+        const auto& b = active_bullets[i];
+        glPushMatrix();
+        glTranslatef(b.x, b.y, b.z);
+        if (i == 0) glColor3f(1.0f, 0.8f, 0.2f); 
+        else        glColor3f(0.2f, 0.5f, 1.0f); 
+
         float s = 0.15f;
         glBegin(GL_QUADS);
         glVertex3f(-s, -s, -s); glVertex3f(s, -s, -s); glVertex3f(s, s, -s); glVertex3f(-s, s, -s);
-        glEnd(); glPopMatrix();
+        glEnd();
+        glPopMatrix();
+
+        if (i == 0) {
+            glEnable(GL_LIGHT1);
+            GLfloat bullet_yellow[] = { 1.0f, 0.8f, 0.2f, 1.0f };
+            glLightfv(GL_LIGHT1, GL_DIFFUSE, bullet_yellow);
+
+            GLfloat pos1[] = { b.x, b.y, b.z, 1.0f };
+            glLightfv(GL_LIGHT1, GL_POSITION, pos1);
+
+            glLightf(GL_LIGHT1, GL_CONSTANT_ATTENUATION, 0.5f);
+            glLightf(GL_LIGHT1, GL_LINEAR_ATTENUATION, 0.2f);
+            glLightf(GL_LIGHT1, GL_QUADRATIC_ATTENUATION, 0.05f);
+        }
+        else if (i == 1) {
+            glEnable(GL_LIGHT2);
+            GLfloat bullet_blue[] = { 0.2f, 0.5f, 1.0f, 1.0f };
+            glLightfv(GL_LIGHT2, GL_DIFFUSE, bullet_blue);
+
+            GLfloat pos2[] = { b.x, b.y, b.z, 1.0f };
+            glLightfv(GL_LIGHT2, GL_POSITION, pos2);
+
+            glLightf(GL_LIGHT2, GL_CONSTANT_ATTENUATION, 0.5f);
+            glLightf(GL_LIGHT2, GL_LINEAR_ATTENUATION, 0.2f);
+            glLightf(GL_LIGHT2, GL_QUADRATIC_ATTENUATION, 0.05f);
+        }
     }
+
+    if (active_bullets.empty()) {
+        glDisable(GL_LIGHT1);
+    }
+    if (active_bullets.size() < 2) {
+        glDisable(GL_LIGHT2);
+    }
+
     glEnable(GL_LIGHTING);
 
     if (isBuilding && !gameOver) {
