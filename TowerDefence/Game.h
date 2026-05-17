@@ -46,7 +46,9 @@ struct Troop {
 };
 
 struct TroopGeometry {
-    std::vector<VertexData> mesh;
+    std::vector<VertexData> base_mesh;
+    std::vector<VertexData> wheel_mesh;
+    std::vector<VertexData> prop_mesh;
 };
 
 struct Projectile{
@@ -57,6 +59,9 @@ struct Projectile{
 
 class Game {
 public:
+    float hud_win_w;
+    float hud_win_h;
+
     int lives = 20;
     int gold = 100;
     int wave = 0;
