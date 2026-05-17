@@ -17,7 +17,7 @@ static float tower_fire_rate[3] = { 0.15f, 0.8f, 0.4f };  // machine gun, rocket
 void Game::init() {
     lives = 20;
     gold = 200;
-    wave = 1;
+    wave = 0;
     waveActive = false;
     gameOver = false;
     isBuilding = false;
@@ -29,41 +29,43 @@ void Game::init() {
     pathWaypoints.clear();
     selectedType = TowerType::MACHINE_GUN;
 
-    pathWaypoints = {
-        {-45.0f, 10.0f},
-        {-20.0f, 10.0f},
-        {-20.0f, -15.0f},
-        {20.0f, -15.0f},
-        {20.0f, 30.0f},
-        {45.0f, 30.0f}
-    };
+    pathWaypoints.clear();
+    for (const auto& splinePt : game_pathway.splinePoints) {
+        P sharpPt;
+        sharpPt.x = splinePt.x;
+        sharpPt.z = splinePt.z;
+        pathWaypoints.push_back(sharpPt);
+    }
 
     std::string tower_directory = "Assets/Towers/source/";
     loadModels(tower_directory, "base.obj", tower_assets[0].base_mesh);
     loadModels(tower_directory, "machine_rotate.obj", tower_assets[0].rotate_mesh);
     loadModels(tower_directory, "machine_gun.obj", tower_assets[0].gun_mesh);
-    tower_assets[0].base_y_offset = 0.2f;
+    tower_assets[0].base_y_offset = 0.4f;
     tower_assets[0].gun_y_offset = 1.8f;
     tower_assets[0].rotate_y_offset = 0.8f;
 
     loadModels(tower_directory, "base.obj", tower_assets[1].base_mesh);
     loadModels(tower_directory, "rockets_rotate.obj", tower_assets[1].rotate_mesh);
     loadModels(tower_directory, "rockets_gun.obj", tower_assets[1].gun_mesh);
-    tower_assets[1].base_y_offset = 0.2f;
+    tower_assets[1].base_y_offset = 0.4f;
     tower_assets[1].gun_y_offset = 0.6f;
     tower_assets[1].rotate_y_offset = 2.8f;
 
     loadModels(tower_directory, "base.obj", tower_assets[2].base_mesh);
     loadModels(tower_directory, "sniper_rotate.obj", tower_assets[2].rotate_mesh);
     loadModels(tower_directory, "sniper_gun.obj", tower_assets[2].gun_mesh);
-    tower_assets[2].base_y_offset = 0.2f;
+    tower_assets[2].base_y_offset = 0.4f;
     tower_assets[2].gun_y_offset = 1.8f;
     tower_assets[2].rotate_y_offset = 0.8f;
 
     std::string troop_dir = "Assets/Troops/source/";
-    loadModels(troop_dir, "car.obj", troop_assets[0].mesh);
-    loadModels(troop_dir, "tank.obj", troop_assets[1].mesh);
-    loadModels(troop_dir, "helicopter.obj", troop_assets[2].mesh);
+    loadModels(troop_dir, "car.obj", troop_assets[0].base_mesh);
+    loadModels(troop_dir, "tank.obj", troop_assets[1].base_mesh);
+    loadModels(troop_dir, "helicopter.obj", troop_assets[2].base_mesh);
+
+    loadModels(troop_dir, "Wheel.obj", troop_assets[1].wheel_mesh);
+    loadModels(troop_dir, "Propellers.obj", troop_assets[2].prop_mesh);
 
     shader_id = loadShader("v_simplest.glsl", "f_simplest.glsl");
 }
@@ -162,7 +164,26 @@ void Game::update(float delta_step) {
 
             if (i < 1000) fire_cooldowns[i] -= delta_step;
             if (fire_cooldowns[i] <= 0.0f && fabs(yDiff) < 15.0f) {
-                spawnProjectile(tower.x, gunWorldY, tower.z, target->x, target->altitude, target->z);
+                float yawRad = tower.current_yaw * 3.14159f / 180.0f;
+                float pitchRad = -tower.current_pitch * 3.14159f / 180.0f;
+
+                float barrelLength = 2.0f;
+
+                float bulletDx = sinf(yawRad) * cosf(pitchRad) * barrelLength;
+                float bulletDz = cosf(yawRad) * cosf(pitchRad) * barrelLength;
+                float bulletDy = sinf(pitchRad) * barrelLength;
+
+                float pivotY = assets.base_y_offset + assets.rotate_y_offset + assets.gun_y_offset;
+
+                spawnProjectile(
+                    tower.x + bulletDx,
+                    pivotY + bulletDy,
+                    tower.z + bulletDz,
+                    target->x,
+                    target->altitude,
+                    target->z
+                );
+
                 fire_cooldowns[i] = tower_fire_rate[ti];
             }
         }
@@ -239,8 +260,12 @@ bool Game::raycastGroundPlane(float mx, float my, int winW, int winH, float& out
 void Game::render() {
     glUseProgram(shader_id);
 
+    float sun_dx = 0.5f;
+    float sun_dy = 1.0f;
+    float sun_dz = 0.5f;
+
     GLint globalDirLoc = glGetUniformLocation(shader_id, "lightDirGlobal");
-    glUniform3f(globalDirLoc, 0.5f, 1.0f, 0.5f); 
+    glUniform3f(globalDirLoc, sun_dx, sun_dy, sun_dz);
 
     GLint bulletActiveLoc = glGetUniformLocation(shader_id, "bulletActive");
     GLint bulletPosLoc = glGetUniformLocation(shader_id, "bulletPos");
@@ -255,6 +280,13 @@ void Game::render() {
         glUniform1f(bulletActiveLoc, 0.0f); 
     }
 
+    float shadowMat[16] = {
+        sun_dy,   0.0f,    0.0f,    0.0f,
+       -sun_dx,   0.0f,   -sun_dz,  0.0f,
+        0.0f,     0.0f,    sun_dy,  0.0f,
+        0.0f,     0.0f,    0.0f,    sun_dy
+    };
+
     glBegin(GL_QUADS);
     glColor3f(0.2f, 0.5f, 0.2f); glNormal3f(0, 1, 0);
     glVertex3f(-50, -0.01f, -50); glVertex3f(50, -0.01f, -50);
@@ -263,12 +295,131 @@ void Game::render() {
 
     game_pathway.Draw();
 
+    float time = (float)glfwGetTime();
+
+    for (const auto& troop : troops) {
+        const auto& assets = troop_assets[(int)troop.variant];
+
+        glPushMatrix();
+        glTranslatef(troop.x, troop.altitude, troop.z);
+        glRotatef(troop.rotation_yaw, 0, 1, 0);
+        glScalef(0.3f, 0.3f, 0.3f);
+        renderMesh(assets.base_mesh, true);
+
+        if (troop.variant == TroopType::TANK) {
+            float wheelRollAngle = time * troop.speed * 120.0f;
+            float wheelOffsetsX[4] = { -2.2f,  2.2f, -2.2f, 2.2f };
+            float wheelOffsetsZ[4] = { -5.0f, -5.0f,  4.0f, 4.0f };
+            float wheelOffsetY = 0.4f;
+
+            for (int w = 0; w < 4; w++) {
+                glPushMatrix();
+                glTranslatef(wheelOffsetsX[w], wheelOffsetY, wheelOffsetsZ[w]);
+                glScalef(1.5f, 1.5f, 1.5f);
+                glRotatef(wheelRollAngle, 1.0f, 0.0f, 0.0f);
+                glRotatef(90.0f, 0.0f, 1.0f, 0.0f);
+                renderMesh(assets.wheel_mesh, true);
+                glPopMatrix();
+            }
+        }
+
+        if (troop.variant == TroopType::HELICOPTER) {
+            float propSpinAngle = time * 360.0f;
+            glPushMatrix();
+            glTranslatef(8.0f, troop.altitude + 4.6f, 4.0f);
+            glRotatef(propSpinAngle, 0.0f, 1.0f, 0.0f);
+            renderMesh(assets.prop_mesh, true);
+            glPopMatrix();
+
+            glPushMatrix();
+            glTranslatef(-8.0f, troop.altitude + 4.6f, 4.0f);
+            glRotatef(propSpinAngle, 0.0f, 1.0f, 0.0f);
+            renderMesh(assets.prop_mesh, true);
+            glPopMatrix();
+
+        }
+        glPopMatrix();
+
+        glDisable(GL_LIGHTING);
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        glEnable(GL_POLYGON_OFFSET_FILL);
+        glPolygonOffset(-2.0f, -2.0f);
+
+        glPushMatrix();
+        glMultMatrixf(shadowMat);
+        glTranslatef(troop.x, troop.altitude, troop.z);
+        glRotatef(troop.rotation_yaw, 0, 1, 0);
+        glScalef(0.3f, 0.3f, 0.3f);
+        glColor4f(0.05f, 0.12f, 0.05f, 0.45f);
+        renderMesh(troop_assets[(int)troop.variant].base_mesh, false);
+        glPopMatrix();
+
+        glDisable(GL_POLYGON_OFFSET_FILL);
+        glDisable(GL_BLEND);
+        glEnable(GL_LIGHTING);
+    }
+
+    for (const auto& tower : active_defenses) {
+        const auto& assets = tower_assets[(int)tower.tower_variant];
+
+        glPushMatrix();
+        glTranslatef(tower.x, assets.base_y_offset, tower.z);
+        glScalef(0.5f, 0.5f, 0.5f);
+        renderMesh(assets.base_mesh, true);
+        glTranslatef(0, assets.rotate_y_offset, 0);
+        glRotatef(tower.current_yaw, 0, 1, 0);
+        renderMesh(assets.rotate_mesh, true);
+        glTranslatef(0, assets.gun_y_offset, 0);
+        glRotatef(-tower.current_pitch, 1, 0, 0);
+        renderMesh(assets.gun_mesh, true);
+        glPopMatrix();
+
+        glDisable(GL_LIGHTING);
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        glEnable(GL_POLYGON_OFFSET_FILL);
+        glPolygonOffset(-2.0f, -2.0f);
+
+        glPushMatrix();
+        glMultMatrixf(shadowMat);
+        glTranslatef(tower.x, assets.base_y_offset, tower.z);
+        glScalef(0.5f, 0.5f, 0.5f);
+        glColor4f(0.05f, 0.12f, 0.05f, 0.45f);
+        renderMesh(assets.base_mesh, false);
+        glTranslatef(0, assets.rotate_y_offset, 0);
+        glRotatef(tower.current_yaw, 0, 1, 0);
+        renderMesh(assets.rotate_mesh, false);
+        glTranslatef(0, assets.gun_y_offset, 0);
+        glRotatef(-tower.current_pitch, 1, 0, 0);
+        renderMesh(assets.gun_mesh, false);
+        glPopMatrix();
+
+        glDisable(GL_POLYGON_OFFSET_FILL);
+        glDisable(GL_BLEND);
+        glEnable(GL_LIGHTING);
+    }
+
+    glUseProgram(0);
+
+    glDisable(GL_LIGHTING);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+    glEnable(GL_POLYGON_OFFSET_FILL);
+    glPolygonOffset(-1.0f, -1.0f);
+
+    glPushMatrix();
+    glMultMatrixf(shadowMat);
+
+    glColor4f(0.05f, 0.12f, 0.05f, 0.45f);
+
     for (const auto& troop : troops) {
         glPushMatrix();
         glTranslatef(troop.x, troop.altitude, troop.z);
         glRotatef(troop.rotation_yaw, 0, 1, 0);
         glScalef(0.3f, 0.3f, 0.3f);
-        renderMesh(troop_assets[(int)troop.variant].mesh);
+        renderMesh(troop_assets[(int)troop.variant].base_mesh, false);
         glPopMatrix();
     }
 
@@ -277,17 +428,21 @@ void Game::render() {
         glPushMatrix();
         glTranslatef(tower.x, assets.base_y_offset, tower.z);
         glScalef(0.5f, 0.5f, 0.5f);
-        renderMesh(assets.base_mesh);
+        renderMesh(assets.base_mesh, false);
         glTranslatef(0, assets.rotate_y_offset, 0);
         glRotatef(tower.current_yaw, 0, 1, 0);
-        renderMesh(assets.rotate_mesh);
+        renderMesh(assets.rotate_mesh, false);
         glTranslatef(0, assets.gun_y_offset, 0);
         glRotatef(-tower.current_pitch, 1, 0, 0);
-        renderMesh(assets.gun_mesh);
+        renderMesh(assets.gun_mesh, false);
         glPopMatrix();
     }
 
-    glUseProgram(0);
+    glPopMatrix();
+
+    glDisable(GL_POLYGON_OFFSET_FILL);
+    glDisable(GL_BLEND);
+    glEnable(GL_LIGHTING);
 
     glDisable(GL_LIGHTING); 
     for (const auto& b : active_bullets) {
@@ -385,26 +540,40 @@ void Game::spawnTroop() {
 }
 
 void Game::renderHUD() {
-    glMatrixMode(GL_PROJECTION); glPushMatrix(); glLoadIdentity(); gluOrtho2D(0, 800, 600, 0);
+    float W = (float)hud_win_w;
+    float H = (float)hud_win_h;
+
+    glMatrixMode(GL_PROJECTION); glPushMatrix(); glLoadIdentity(); gluOrtho2D(0, W, H, 0);
     glMatrixMode(GL_MODELVIEW);  glPushMatrix(); glLoadIdentity();
     glDisable(GL_LIGHTING); glDisable(GL_DEPTH_TEST); glDisable(GL_TEXTURE_2D);
 
     glColor3f(1, 1, 0);
-    std::string hud = "Gold: " + std::to_string(gold) + "  Lives: " + std::to_string(lives) + "  Wave: " + std::to_string(wave);
+    std::string wave_msg = (wave > 0) ? "  Wave: " + std::to_string(wave) : "  Press [SPACE] to start";
+    std::string hud = "Gold: " + std::to_string(gold) + "  Lives: " + std::to_string(lives) + wave_msg;
     glRasterPos2f(20, 30);
     for (char c : hud) glutBitmapCharacter(GLUT_BITMAP_9_BY_15, c);
 
     if (waveEndMessageTimer > 0.0f) {
-        glColor3f(1.0f, 0.5f, 0.0f);
+        glColor3f(0.0f, 1.0f, 0.0f);
         std::string msg = "Wave " + std::to_string(wave - 1) + " complete";
-        glRasterPos2f(250, 280);
+
+        int textWidth = glutBitmapLength(GLUT_BITMAP_HELVETICA_18, (const unsigned char*)msg.c_str());
+        float centerX = (W - textWidth) / 2.0f;
+        float centerY = H / 2.0f;
+
+        glRasterPos2f(centerX, centerY);
         for (char c : msg) glutBitmapCharacter(GLUT_BITMAP_HELVETICA_18, c);
     }
 
     if (gameOver) {
         glColor3f(1.0f, 0.0f, 0.0f);
         std::string msg = "GAME OVER";
-        glRasterPos2f(250, 280);
+
+        int textWidth = glutBitmapLength(GLUT_BITMAP_HELVETICA_18, (const unsigned char*)msg.c_str());
+        float centerX = (W - textWidth) / 2.0f;
+        float centerY = H / 2.0f;
+
+        glRasterPos2f(centerX, centerY);
         for (char c : msg) glutBitmapCharacter(GLUT_BITMAP_HELVETICA_18, c);
     }
 

@@ -162,6 +162,9 @@ int main(int argc, char** argv) {
         glfwGetCursorPos(window, &cursor_x, &cursor_y);
         glfwGetWindowSize(window, &win_w, &win_h);
 
+        g_game.hud_win_w = win_w;
+        g_game.hud_win_h = win_h;
+
         float yaw_rad = g_camera.angleY * 3.14159f / 180.0f;
         float dir_fwd_x = sinf(yaw_rad);
         float dir_fwd_z = -cosf(yaw_rad);

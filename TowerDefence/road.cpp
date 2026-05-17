@@ -16,9 +16,35 @@ Road::Road() {
 
 void Road::GenerateSpline() {
     splinePoints.clear();
-    for (const auto& pt : controlPoints) {
-        splinePoints.push_back(pt);
+    if (controlPoints.size() < 2) return;
+
+    int n = controlPoints.size();
+    int subdivisions = 15;
+
+    for (int i = 0; i < n - 1; i++) {
+        glm::vec3 p0 = (i == 0) ? controlPoints[i] : controlPoints[i - 1];
+        glm::vec3 p1 = controlPoints[i];
+        glm::vec3 p2 = controlPoints[i + 1];
+        glm::vec3 p3 = (i == n - 2) ? controlPoints[i + 1] : controlPoints[i + 2];
+
+        for (int step = 0; step < subdivisions; step++) {
+            float t = (float)step / (float)subdivisions;
+
+            float t2 = t * t;
+            float t3 = t2 * t;
+
+            glm::vec3 splinePt = 0.5f * (
+                (2.0f * p1) +
+                (-p0 + p2) * t +
+                (2.0f * p0 - 5.0f * p1 + 4.0f * p2 - p3) * t2 +
+                (-p0 + 3.0f * p1 - 3.0f * p2 + p3) * t3
+                );
+
+            splinePoints.push_back(splinePt);
+        }
     }
+
+    splinePoints.push_back(controlPoints.back());
 }
 
 void Road::GenerateMesh() {
