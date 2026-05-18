@@ -93,6 +93,7 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
         }
         if (key == GLFW_KEY_SPACE) g_game.startNextWave();
 
+        // Wybór wierzy
         if (key == GLFW_KEY_1) g_game.selectTowerType(0);
         if (key == GLFW_KEY_2) g_game.selectTowerType(1);
         if (key == GLFW_KEY_3) g_game.selectTowerType(2);
@@ -100,6 +101,13 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
         if (key == GLFW_KEY_1) g_game.toggleBuildMode(0);
         if (key == GLFW_KEY_2) g_game.toggleBuildMode(1);
         if (key == GLFW_KEY_3) g_game.toggleBuildMode(2);
+
+		// Pauza i zmiana prędkości gry
+        if (key == GLFW_KEY_P) g_game.paused = !g_game.paused;
+        if (key == GLFW_KEY_F) {
+            auto& s = g_game.gameSpeed;
+            s = (s == 1.0f) ? 0.5f : (s == 2.0f) ? 3.0f : 1.0f;
+        }
     }
 }
 
@@ -182,7 +190,8 @@ int main(int argc, char** argv) {
         if (g_camera.cz < -MAP_BOUNDARY) g_camera.cz = -MAP_BOUNDARY;
         if (g_camera.cz > MAP_BOUNDARY) g_camera.cz = MAP_BOUNDARY;
 
-        if (!g_game.gameOver) g_game.update(frame_delta);
+        if (!g_game.gameOver && !g_game.paused)
+            g_game.update(frame_delta * g_game.gameSpeed);
 
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 

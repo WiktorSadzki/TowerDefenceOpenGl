@@ -9,10 +9,24 @@
 #include "Game.h"
 #include <sstream>
 
-static float spawn_interval = 2.0f;
-static int   tower_cost_lookup[3] = { 20, 50, 80 };
-static float tower_rotate_speed[3] = { 15.0f, 8.0f, 25.0f };  // machine gun, rockets, sniper
-static float tower_fire_rate[3] = { 0.15f, 0.8f, 0.4f };  // machine gun, rockets, sniper
+static float spawn_interval = 0.1f;
+
+TowerInstance Game::getTowerDefaults(TowerType type) {
+    TowerInstance t;
+    t.tower_variant = type;
+    t.cost = 20; t.tower_rotate_speed = 15.0f;
+    t.tower_fire_rate = 0.15f; t.tower_dmg = 20.0f; t.tower_range = 10.0f;
+
+    if (type == TowerType::ROCKETS) {
+        t.cost = 30; t.tower_rotate_speed = 8.0f;
+        t.tower_fire_rate = 0.08f; t.tower_dmg = 50.0f; t.tower_range = 8.0f;
+    }
+    else if (type == TowerType::SNIPER) {
+        t.cost = 25; t.tower_rotate_speed = 25.0f;
+        t.tower_fire_rate = 0.12f; t.tower_dmg = 35.0f; t.tower_range = 12.0f;
+    }
+    return t;
+}
 
 void Game::init() {
     lives = 20;
@@ -67,11 +81,15 @@ void Game::init() {
     loadModels(troop_dir, "Wheel.obj", troop_assets[1].wheel_mesh);
     loadModels(troop_dir, "Propellers.obj", troop_assets[2].prop_mesh);
 
+    std::string ammo_dir = "Assets/Ammo/source/";
+    loadModels(ammo_dir, "Bullet.obj", projectile_assets.bullet_mesh);
+    loadModels(ammo_dir, "Rocket.obj", projectile_assets.rocket_mesh);
+
     shader_id = loadShader("v_simplest.glsl", "f_simplest.glsl");
 }
 
 void Game::startNextWave() {
-    if (waveActive) return;
+    if (waveActive || waveEndMessageTimer > 0.0f) return;
     waveActive = true;
     wave++;
     if (wave <= 3)
@@ -79,6 +97,8 @@ void Game::startNextWave() {
     else
         troopsRemainingInWave = 5 + (wave * 2);
     spawnTimer = 0.0f;
+	spawn_interval = 2.0f - (wave * 0.1f);
+	if (spawn_interval < 0.1f) spawn_interval = 0.1f;
 }
 
 void Game::update(float delta_step) {
@@ -132,9 +152,11 @@ void Game::update(float delta_step) {
 
     for (size_t i = 0; i < active_defenses.size(); i++) {
         auto& tower = active_defenses[i];
-        float range = 9.0f;
-        if (tower.tower_variant == TowerType::ROCKETS) range = 10.0f;
-        else if (tower.tower_variant == TowerType::SNIPER) range = 15.0f;
+        float range = tower.tower_range;
+
+        if (tower.current_cooldown > 0.0f) {
+            tower.current_cooldown -= delta_step;
+        }
 
         Troop* target = nullptr;
         float bestDist = range;
@@ -147,44 +169,78 @@ void Game::update(float delta_step) {
             const auto& assets = tower_assets[(int)tower.tower_variant];
             float adx = target->x - tower.x;
             float adz = target->z - tower.z;
-            float gunWorldY = assets.base_y_offset + assets.rotate_y_offset + assets.gun_y_offset;
-            float ady = target->altitude - gunWorldY;
-
-            float targetYaw = atan2f(adx, adz) * 180.0f / 3.14159f;
             float dist2D = sqrtf(adx * adx + adz * adz);
-            float targetPitch = atan2f(ady, dist2D) * 180.0f / 3.14159f + 20.0f;
+
+            float gunPivotX = tower.x;
+            float gunPivotY = assets.base_y_offset
+                + 0.5f * assets.rotate_y_offset
+                + 0.5f * assets.gun_y_offset;
+            float gunPivotZ = tower.z;
+
+            float ady = target->altitude - gunPivotY;
+
+            float targetYaw = atan2f(adx, adz) * (180.0f / 3.14159f);
+            float targetPitch = atan2f(ady, dist2D) * (180.0f / 3.14159f);
 
             float yDiff = targetYaw - tower.current_yaw;
             while (yDiff < -180) yDiff += 360;
             while (yDiff > 180) yDiff -= 360;
-            int ti = (int)tower.tower_variant;
+            tower.current_yaw += yDiff * delta_step * tower.tower_rotate_speed;
+            tower.current_pitch += (targetPitch - tower.current_pitch) * delta_step * tower.tower_rotate_speed;
 
-            tower.current_yaw += yDiff * delta_step * tower_rotate_speed[ti];
-            tower.current_pitch += (targetPitch - tower.current_pitch) * delta_step * tower_rotate_speed[ti];
+            float pitchDiff = targetPitch - tower.current_pitch;
 
-            if (i < 1000) fire_cooldowns[i] -= delta_step;
-            if (fire_cooldowns[i] <= 0.0f && fabs(yDiff) < 15.0f) {
-                float yawRad = tower.current_yaw * 3.14159f / 180.0f;
-                float pitchRad = -tower.current_pitch * 3.14159f / 180.0f;
+            if (tower.current_cooldown <= 0.0f && fabs(yDiff) < 15.0f && fabs(pitchDiff) < 10.0f) {
+                float yawRad = tower.current_yaw * (3.14159f / 180.0f);
+                float pitchRad = tower.current_pitch * (3.14159f / 180.0f);
 
-                float barrelLength = 2.0f;
+                float fwdX = sinf(yawRad) * cosf(pitchRad);
+                float fwdY = sinf(pitchRad);
+                float fwdZ = cosf(yawRad) * cosf(pitchRad);
 
-                float bulletDx = sinf(yawRad) * cosf(pitchRad) * barrelLength;
-                float bulletDz = cosf(yawRad) * cosf(pitchRad) * barrelLength;
-                float bulletDy = sinf(pitchRad) * barrelLength;
+                float rightX = cosf(yawRad);
+                float rightZ = -sinf(yawRad);
 
-                float pivotY = assets.base_y_offset + assets.rotate_y_offset + assets.gun_y_offset;
+                float muzzleFwd = 0.6f;
+                float muzzleRight = 0.0f;
+                float muzzleUp = 0.0f;
+                bool  isRocket = false;
 
-                spawnProjectile(
-                    tower.x + bulletDx,
-                    pivotY + bulletDy,
-                    tower.z + bulletDz,
-                    target->x,
-                    target->altitude,
-                    target->z
-                );
+                if (tower.tower_variant == TowerType::MACHINE_GUN) {
+                    const float gunRight[2] = { -0.32f, 0.32f };
+                    muzzleFwd = 2.1f;
+                    muzzleRight = gunRight[tower.nextBarrel % 2];
+                    muzzleUp = 0.0f;
+                    tower.nextBarrel = (tower.nextBarrel + 1) % 2;
+                }
+                else if (tower.tower_variant == TowerType::ROCKETS) {
+					float right = 1.5f;
+                    const float tubeRight[8] = { -right,  right,  -right+0.2,  right-0.2,  -right,  right,  -right+0.2,  right-0.2 };
+                    const float tubeUp[8] = { 0.30f,  0.30f,   0.10f,  0.10f,  -0.10f, -0.10f,  -0.30f, -0.30f };
+                    int idx = tower.nextBarrel % 8;
+                    muzzleFwd = 0.6f;
+                    muzzleRight = tubeRight[idx];
+                    muzzleUp = tubeUp[idx];
+                    isRocket = true;
+                    tower.nextBarrel = (tower.nextBarrel + 1) % 8;
+                }
+                else if (tower.tower_variant == TowerType::SNIPER) {
+                    muzzleFwd = 1.0f;
+                }
 
-                fire_cooldowns[i] = tower_fire_rate[ti];
+                float upX = -sinf(yawRad) * sinf(pitchRad);
+                float upY = cosf(pitchRad);
+                float upZ = -cosf(yawRad) * sinf(pitchRad);
+
+                float spawnX = gunPivotX + fwdX * muzzleFwd + rightX * muzzleRight + upX * muzzleUp;
+                float spawnY = gunPivotY + fwdY * muzzleFwd + upY * muzzleUp;
+                float spawnZ = gunPivotZ + fwdZ * muzzleFwd + rightZ * muzzleRight + upZ * muzzleUp;
+
+                spawnProjectile(spawnX, spawnY, spawnZ,
+                    target->x, target->altitude, target->z,
+                    tower.tower_dmg, isRocket);
+
+                tower.current_cooldown = tower.tower_fire_rate;
             }
         }
     }
@@ -197,7 +253,23 @@ void Game::update(float delta_step) {
         bool destroyed = false;
         for (auto& enemy : troops) {
             float dist = sqrtf(powf(enemy.x - it->x, 2) + powf(enemy.altitude - it->y, 2) + powf(enemy.z - it->z, 2));
-            if (dist < 1.2f) { enemy.health -= 20.0f; destroyed = true; break; }
+            
+            float hitbox_radius = 1.2f;
+            if (enemy.variant == CAR) {
+                hitbox_radius = 0.8f;
+            }
+            else if (enemy.variant == TANK) {
+                hitbox_radius = 1.6f;
+            }
+            else {
+                hitbox_radius = 2.0f;
+            }
+            
+            if (dist < hitbox_radius) {
+                enemy.health -= it->damage; 
+                destroyed = true;
+                break;
+            }
         }
         if (destroyed || it->life_span <= 0) it = active_bullets.erase(it);
         else ++it;
@@ -308,16 +380,16 @@ void Game::render() {
 
         if (troop.variant == TroopType::TANK) {
             float wheelRollAngle = time * troop.speed * 120.0f;
-            float wheelOffsetsX[4] = { -2.2f,  2.2f, -2.2f, 2.2f };
-            float wheelOffsetsZ[4] = { -5.0f, -5.0f,  4.0f, 4.0f };
-            float wheelOffsetY = 0.4f;
+            float wheelOffsetsX[2] = { 0.0f, 0.0f };
+            float wheelOffsetsZ[2] = { -3.5f, 4.65f};
+            float wheelOffsetY = -1.9f;
 
-            for (int w = 0; w < 4; w++) {
+            for (int w = 0; w < 2; w++) {
                 glPushMatrix();
                 glTranslatef(wheelOffsetsX[w], wheelOffsetY, wheelOffsetsZ[w]);
-                glScalef(1.5f, 1.5f, 1.5f);
+                glScalef(0.95f, 0.95f, 0.95f);
                 glRotatef(wheelRollAngle, 1.0f, 0.0f, 0.0f);
-                glRotatef(90.0f, 0.0f, 1.0f, 0.0f);
+                glRotatef(90.0f, 1.0f, 0.0f, 0.0f);
                 renderMesh(assets.wheel_mesh, true);
                 glPopMatrix();
             }
@@ -326,38 +398,13 @@ void Game::render() {
         if (troop.variant == TroopType::HELICOPTER) {
             float propSpinAngle = time * 360.0f;
             glPushMatrix();
-            glTranslatef(8.0f, troop.altitude + 4.6f, 4.0f);
-            glRotatef(propSpinAngle, 0.0f, 1.0f, 0.0f);
-            renderMesh(assets.prop_mesh, true);
-            glPopMatrix();
-
-            glPushMatrix();
-            glTranslatef(-8.0f, troop.altitude + 4.6f, 4.0f);
+            glTranslatef(0.0f, troop.altitude - 0.5f, 0.5f);
             glRotatef(propSpinAngle, 0.0f, 1.0f, 0.0f);
             renderMesh(assets.prop_mesh, true);
             glPopMatrix();
 
         }
         glPopMatrix();
-
-        glDisable(GL_LIGHTING);
-        glEnable(GL_BLEND);
-        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-        glEnable(GL_POLYGON_OFFSET_FILL);
-        glPolygonOffset(-2.0f, -2.0f);
-
-        glPushMatrix();
-        glMultMatrixf(shadowMat);
-        glTranslatef(troop.x, troop.altitude, troop.z);
-        glRotatef(troop.rotation_yaw, 0, 1, 0);
-        glScalef(0.3f, 0.3f, 0.3f);
-        glColor4f(0.05f, 0.12f, 0.05f, 0.45f);
-        renderMesh(troop_assets[(int)troop.variant].base_mesh, false);
-        glPopMatrix();
-
-        glDisable(GL_POLYGON_OFFSET_FILL);
-        glDisable(GL_BLEND);
-        glEnable(GL_LIGHTING);
     }
 
     for (const auto& tower : active_defenses) {
@@ -379,7 +426,7 @@ void Game::render() {
         glEnable(GL_BLEND);
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
         glEnable(GL_POLYGON_OFFSET_FILL);
-        glPolygonOffset(-2.0f, -2.0f);
+        glPolygonOffset(1.0f, 1.0f);
 
         glPushMatrix();
         glMultMatrixf(shadowMat);
@@ -444,15 +491,26 @@ void Game::render() {
     glDisable(GL_BLEND);
     glEnable(GL_LIGHTING);
 
-    glDisable(GL_LIGHTING); 
+    glDisable(GL_LIGHTING);
     for (const auto& b : active_bullets) {
+        float spd = sqrtf(b.vx * b.vx + b.vy * b.vy + b.vz * b.vz);
+        float yaw = atan2f(b.vx, b.vz) * 180.0f / 3.14159f;
+        float pitch = -asinf(b.vy / spd) * 180.0f / 3.14159f;
+
         glPushMatrix();
         glTranslatef(b.x, b.y, b.z);
-        glColor3f(1.0f, 0.8f, 0.2f); 
-        float s = 0.15f;
-        glBegin(GL_QUADS);
-        glVertex3f(-s, -s, -s); glVertex3f(s, -s, -s); glVertex3f(s, s, -s); glVertex3f(-s, s, -s);
-        glEnd();
+        glRotatef(yaw, 0, 1, 0);
+        glRotatef(pitch, 1, 0, 0);
+        glRotatef(-90.0f, 0.0f, 1.0f, 0.0f);
+
+        if (b.isRocket) {
+            glScalef(0.15f, 0.15f, 0.15f);
+            renderMesh(projectile_assets.rocket_mesh, true);
+        }
+        else {
+            glScalef(0.1f, 0.1f, 0.1f);
+            renderMesh(projectile_assets.bullet_mesh, true);
+        }
         glPopMatrix();
     }
     glEnable(GL_LIGHTING);
@@ -469,9 +527,8 @@ void Game::render() {
             ghost_wz = ground_z;
         }
 
-        float ghostRange = 9.0f;
-        if (ghostType == TowerType::ROCKETS) ghostRange = 10.0f;
-        else if (ghostType == TowerType::SNIPER) ghostRange = 15.0f;
+        TowerInstance preview = getTowerDefaults(ghostType);
+        float ghostRange = preview.tower_range;
 
         bool onRoad = isOnRoad(ghost_wx, ghost_wz, pathWaypoints, game_pathway.roadWidth);
 
@@ -482,8 +539,6 @@ void Game::render() {
 
         glPushMatrix();
         glTranslatef(ghost_wx, 0.1f, ghost_wz);
-        if (onRoad) glColor4f(1, 0, 0, 0.6f);
-        else        glColor4f(0, 1, 0, 0.3f);
         glBegin(GL_LINE_LOOP);
         for (int i = 0; i < 36; i++) {
             float a = i * 10.0f * 3.1415f / 180.0f;
@@ -497,6 +552,7 @@ void Game::render() {
         glScalef(0.5f, 0.5f, 0.5f);
         if (onRoad) glColor4f(1.0f, 0.3f, 0.3f, 0.5f);
         else        glColor4f(1.0f, 1.0f, 1.0f, 0.5f);
+
         renderMesh(assets.base_mesh, false);
         glTranslatef(0, assets.rotate_y_offset, 0);
         renderMesh(assets.rotate_mesh, false);
@@ -511,9 +567,13 @@ void Game::render() {
     renderHUD();
 }
 
-void Game::spawnProjectile(float sx, float sy, float sz, float tx, float ty, float tz) {
+void Game::spawnProjectile(float sx, float sy, float sz,
+    float tx, float ty, float tz,
+    float damage_val, bool isRocket) {
     Projectile p;
     p.x = sx; p.y = sy; p.z = sz;
+    p.damage = damage_val;
+    p.isRocket = isRocket;
     float dx = tx - sx, dy = ty - sy, dz = tz - sz;
     float dist = sqrtf(dx * dx + dy * dy + dz * dz);
     float speed = 50.0f;
@@ -530,11 +590,15 @@ void Game::spawnTroop() {
     t.currentWaypoint = 1;
     t.rotation_yaw = 0.0f;
 
-    int type = rand() % 3;
-    t.variant = (TroopType)type;
-    if (t.variant == CAR) { t.health = 40;  t.speed = 3.5f; t.altitude = 0.5f; }
-    else if (t.variant == TANK) { t.health = 150; t.speed = 2.0f; t.altitude = 0.5f; }
-    else { t.health = 60;  t.speed = 12.0f; t.altitude = 3.0f; }
+    int roll = rand() % 100;
+
+    if (roll < 50)       t.variant = CAR;
+    else if (roll < 80)  t.variant = TANK;
+    else                 t.variant = HELICOPTER;
+
+    if (t.variant == CAR) { t.health = 40;  t.speed = 3.5f; t.altitude = 0.8f; }
+    else if (t.variant == TANK) { t.health = 150; t.speed = 2.0f; t.altitude = 1.1f; }
+    else { t.health = 60;  t.speed = 12.0f; t.altitude = 6.0f; }
 
     troops.push_back(t);
 }
@@ -553,9 +617,16 @@ void Game::renderHUD() {
     glRasterPos2f(20, 30);
     for (char c : hud) glutBitmapCharacter(GLUT_BITMAP_9_BY_15, c);
 
+    glColor3f(1, 1, 0);
+    std::string speed_msg = paused
+        ? "  [PAUSED]"
+        : "  Speed: " + std::to_string((int)gameSpeed) + "x";
+    glRasterPos2f(20, 55);
+    for (char c : speed_msg) glutBitmapCharacter(GLUT_BITMAP_9_BY_15, c);
+
     if (waveEndMessageTimer > 0.0f) {
         glColor3f(0.0f, 1.0f, 0.0f);
-        std::string msg = "Wave " + std::to_string(wave - 1) + " complete";
+        std::string msg = "Wave " + std::to_string(wave) + " complete";
 
         int textWidth = glutBitmapLength(GLUT_BITMAP_HELVETICA_18, (const unsigned char*)msg.c_str());
         float centerX = (W - textWidth) / 2.0f;
@@ -582,7 +653,9 @@ void Game::renderHUD() {
     glMatrixMode(GL_MODELVIEW);  glPopMatrix();
 }
 
-void Game::selectTowerType(int i) { if (i >= 0 && i <= 2) selectedType = (TowerType)i; }
+void Game::selectTowerType(int i) { 
+    if (i >= 0 && i <= 2) selectedType = (TowerType)i; 
+}
 
 void Game::loadModels(std::string root, std::string file, std::vector<VertexData>& buffer) {
     tinyobj::attrib_t attr; std::vector<tinyobj::shape_t> shp; std::vector<tinyobj::material_t> mat; std::string w, e;
@@ -612,7 +685,7 @@ void Game::loadModels(std::string root, std::string file, std::vector<VertexData
                     vd.b = mat[mat_id].diffuse[2];
                 }
                 else {
-                    vd.r = vd.g = vd.b = 0.7f;
+                    vd.r = 0.4f; vd.g = 0.4f; vd.b = 0.45f;
                 }
                 buffer.push_back(vd);
             }
@@ -652,15 +725,17 @@ void Game::toggleBuildMode(int typeIndex) {
 
 void Game::tryPlaceTower(int mouse_x, int mouse_y, Camera& world_camera) {
     if (!isBuilding) return;
-    int current_cost = tower_cost_lookup[(int)selectedType];
+
+    TowerInstance turret_unit = getTowerDefaults(selectedType);
+
+    int current_cost = turret_unit.cost;
     if (gold < current_cost) return;
     if (isOnRoad(ghost_wx, ghost_wz, pathWaypoints, game_pathway.roadWidth)) return;
-
-    TowerInstance turret_unit;
+    
     turret_unit.x = ghost_wx;
     turret_unit.z = ghost_wz;
     turret_unit.current_yaw = 0.0f;
-    turret_unit.tower_variant = selectedType;
+
     active_defenses.push_back(turret_unit);
     gold -= current_cost;
 

@@ -7,12 +7,11 @@ out vec3 vViewDir;
 
 void main() {
     vColor = gl_Color;
-    
-    vNormal = gl_NormalMatrix * gl_Normal; 
-    
-    vPos = gl_ModelViewMatrix * gl_Vertex; 
 
-    vViewDir = -vPos.xyz;
+    vNormal = normalize(gl_NormalMatrix * gl_Normal); 
+
+    vPos = gl_ModelViewMatrix * gl_Vertex; 
     
+    vViewDir = normalize(-vPos.xyz);
     gl_Position = gl_ModelViewProjectionMatrix * gl_Vertex;
 }

@@ -36,6 +36,14 @@ struct TowerInstance {
     float current_yaw = 0.0f;
     float current_pitch = 0.0f;
     TowerType tower_variant = TowerType::MACHINE_GUN;
+    float tower_rotate_speed =15.0f;
+    float tower_fire_rate = 0.15f;
+    float tower_dmg = 20.0f;
+    float tower_range =9.0f;
+    int cost = 20;
+    float current_cooldown = 0.0f;
+
+    int nextBarrel = 0;
 };
 
 struct Troop {
@@ -55,12 +63,22 @@ struct Projectile{
     float x = 0.0f, y = 0.0f, z = 0.0f;
     float vx = 0.0f, vy = 0.0f, vz = 0.0f;
     float life_span = 0.0f;
+    float damage;
+    bool isRocket = false;
+};
+
+struct ProjectileGeometry {
+    std::vector<VertexData> bullet_mesh;
+    std::vector<VertexData> rocket_mesh;
 };
 
 class Game {
 public:
     float hud_win_w;
     float hud_win_h;
+
+    float gameSpeed = 1.0f;
+    bool  paused = false;
 
     int lives = 20;
     int gold = 100;
@@ -76,7 +94,7 @@ public:
     std::vector<Projectile> active_bullets;
     float fire_cooldowns[1000] = { 0 };
 
-    void spawnProjectile(float sx, float sy, float sz, float tx, float ty, float tz);
+    void spawnProjectile(float sx, float sy, float sz, float tx, float ty, float tz, float damage_val, bool isRocket = false);
 
     void startNextWave();
 
@@ -101,6 +119,8 @@ public:
 
     TroopGeometry troop_assets[3];
 
+    ProjectileGeometry projectile_assets;
+
     void init();
     void update(float delta_step);
     void render();
@@ -114,6 +134,8 @@ public:
     void loadTroopWave(std::string resource_path);
     void selectTowerType(int list_index);
     void toggleBuildMode(int typeIndex);
+
+    TowerInstance getTowerDefaults(TowerType type);
 
     GLuint shader_id = 0;
     GLuint loadShader(const char* vertexPath, const char* fragmentPath);
