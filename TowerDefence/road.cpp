@@ -105,7 +105,7 @@ void Road::Draw() {
         unsigned int current_idx = indices[iter];
         Vertex current_vert = vertices[current_idx];
         glTexCoord2f(current_vert.TexCoords.x, current_vert.TexCoords.y);
-        glVertex3f(current_vert.Position.x, current_vert.Position.y + 0.05f, current_vert.Position.z);
+        glVertex3f(current_vert.Position.x, current_vert.Position.y, current_vert.Position.z);
     }
     glEnd();
     glEnable(GL_LIGHTING);
