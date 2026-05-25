@@ -22,7 +22,7 @@ static float spawn_interval = 0.1f;
 GLuint Game::readTexture(const char* filename) {
     GLuint tex = 0;
     int width, height, channels;
-
+    stbi_set_flip_vertically_on_load(true);
     unsigned char* image_data = stbi_load(filename, &width, &height, &channels, 4);
 
     if (!image_data) {
