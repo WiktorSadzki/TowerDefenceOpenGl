@@ -5,7 +5,8 @@
 #include "Camera.h"
 #include "Road.h"
 
-enum TileType { TILE_GRASS, TILE_PATH, TILE_TREE, TILE_MOUNTAIN };
+enum TileType { TILE_GRASS, TILE_PATH, TILE_TREE, TILE_MOUNTAIN, TILE_TOWER
+};
 enum class TowerType { MACHINE_GUN = 0, ROCKETS = 1, SNIPER = 2 };
 enum TroopType { CAR, TANK, HELICOPTER };
 enum GameState { START_MENU, PLAYING, GAME_OVER };
@@ -19,7 +20,18 @@ struct VertexData {
     float x, y, z;
     float nx, ny, nz;
     float r, g, b;
+    float u, v;
 };
+
+struct TextureBundle {
+    GLuint baseColor = 0;
+    GLuint normalMap = 0;
+    GLuint metallic = 0;
+    GLuint roughness = 0;
+    GLuint emissive = 0;
+    GLuint ao = 0;
+};
+
 
 struct TowerGeometry {
     std::vector<VertexData> base_mesh;
@@ -28,6 +40,11 @@ struct TowerGeometry {
     float base_y_offset = 0.0f;
     float gun_y_offset = 0.0f;
     float rotate_y_offset = 0.0f;
+
+    TextureBundle base_tex;
+    TextureBundle rotate_tex;
+    TextureBundle gun_tex;
+
 };
 
 struct TowerInstance {
@@ -57,6 +74,8 @@ struct TroopGeometry {
     std::vector<VertexData> base_mesh;
     std::vector<VertexData> wheel_mesh;
     std::vector<VertexData> prop_mesh;
+
+    TextureBundle base_tex;
 };
 
 struct Projectile{
@@ -70,6 +89,9 @@ struct Projectile{
 struct ProjectileGeometry {
     std::vector<VertexData> bullet_mesh;
     std::vector<VertexData> rocket_mesh;
+
+    TextureBundle bullet_tex;
+    TextureBundle rocket_tex;
 };
 
 class Game {
@@ -123,7 +145,7 @@ public:
 
     void init();
     void update(float delta_step);
-    void render();
+    void render(glm::mat4 P, glm::mat4 V);
     void spawnTroop();
 
     void loadMapFromImage(const std::string& texture_path);
@@ -135,10 +157,14 @@ public:
     void selectTowerType(int list_index);
     void toggleBuildMode(int typeIndex);
 
+    void applyTextures(GLuint shader_id, const TextureBundle& bundle);
+
     TowerInstance getTowerDefaults(TowerType type);
 
     GLuint shader_id = 0;
     GLuint loadShader(const char* vertexPath, const char* fragmentPath);
+    
+    static GLuint readTexture(const char* filename);
 private:
     void renderHUD();
 };

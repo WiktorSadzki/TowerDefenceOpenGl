@@ -1,5 +1,5 @@
 #define TINYOBJLOADER_IMPLEMENTATION
-#include "tiny_obj_loader.h" 
+#include "tiny_obj_loader.h"
 #include <iostream>
 #include <fstream>
 #include <GL/glew.h>
@@ -7,15 +7,96 @@
 #include <GL/glu.h>
 #include <GL/glut.h>
 #include "Game.h"
+#include "lodepng.h"
 #include <sstream>
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/type_ptr.hpp>
+
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb_image.h"
 
 static float spawn_interval = 0.1f;
+
+// Reads textures using lodepng
+GLuint Game::readTexture(const char* filename) {
+    GLuint tex = 0;
+    int width, height, channels;
+
+    unsigned char* image_data = stbi_load(filename, &width, &height, &channels, 4);
+
+    if (!image_data) {
+        std::cout << "Texture load error! Could not find/read file: " << filename << std::endl;
+        return 0;
+    }
+
+    glActiveTexture(GL_TEXTURE0);
+    glGenTextures(1, &tex);
+    glBindTexture(GL_TEXTURE_2D, tex);
+
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0,
+        GL_RGBA, GL_UNSIGNED_BYTE, image_data);
+
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+    stbi_image_free(image_data);
+
+    return tex;
+}
+
+// Binds all PBR maps and flags to the shader program locations
+static void bindTextures(GLuint shader, const TextureBundle& bundle_config) {
+    glUniform1i(glGetUniformLocation(shader, "texBaseColor"), 0);
+    glUniform1i(glGetUniformLocation(shader, "texEmissive"), 1);
+
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, bundle_config.baseColor);
+    glUniform1f(glGetUniformLocation(shader, "hasBaseColor"),
+        bundle_config.baseColor ? 1.0f : 0.0f);
+
+    glActiveTexture(GL_TEXTURE1);
+    glBindTexture(GL_TEXTURE_2D, bundle_config.emissive);
+    glUniform1f(glGetUniformLocation(shader, "hasEmissive"),
+        bundle_config.emissive ? 1.0f : 0.0f);
+
+    glActiveTexture(GL_TEXTURE0);
+}
+
+// Resets texture targets and turns hasTexture uniform flags off
+static void unbindTextures(GLuint shader) {
+    for (int i = 0; i < 6; ++i) {
+        glActiveTexture(GL_TEXTURE0 + i);
+        glBindTexture(GL_TEXTURE_2D, 0);
+    }
+    glUniform1f(glGetUniformLocation(shader, "hasBaseColor"), 0.0f);
+    glUniform1f(glGetUniformLocation(shader, "hasNormal"), 0.0f);
+    glUniform1f(glGetUniformLocation(shader, "hasMetallic"), 0.0f);
+    glUniform1f(glGetUniformLocation(shader, "hasRoughness"), 0.0f);
+    glUniform1f(glGetUniformLocation(shader, "hasEmissive"), 0.0f);
+    glUniform1f(glGetUniformLocation(shader, "hasAO"), 0.0f);
+    glActiveTexture(GL_TEXTURE0);
+}
+
+static void renderMesh(const std::vector<VertexData>& mesh, bool useColor = true) {
+    glBegin(GL_TRIANGLES);
+    for (const auto& v : mesh) {
+        glTexCoord2f(v.u, v.v);
+        if (useColor) glColor4f(v.r, v.g, v.b, 1.0f);
+        glNormal3f(v.nx, v.ny, v.nz);
+        glVertex3f(v.x, v.y, v.z);
+    }
+    glEnd();
+}
 
 TowerInstance Game::getTowerDefaults(TowerType type) {
     TowerInstance t;
     t.tower_variant = type;
-    t.cost = 20; t.tower_rotate_speed = 15.0f;
-    t.tower_fire_rate = 0.15f; t.tower_dmg = 20.0f; t.tower_range = 10.0f;
+    t.cost = 20;
+    t.tower_rotate_speed = 15.0f;
+    t.tower_fire_rate = 0.15f;
+    t.tower_dmg = 20.0f;
+    t.tower_range = 10.0f;
 
     if (type == TowerType::ROCKETS) {
         t.cost = 30; t.tower_rotate_speed = 8.0f;
@@ -43,7 +124,6 @@ void Game::init() {
     pathWaypoints.clear();
     selectedType = TowerType::MACHINE_GUN;
 
-    pathWaypoints.clear();
     for (const auto& splinePt : game_pathway.splinePoints) {
         P sharpPt;
         sharpPt.x = splinePt.x;
@@ -51,24 +131,24 @@ void Game::init() {
         pathWaypoints.push_back(sharpPt);
     }
 
-    std::string tower_directory = "Assets/Towers/source/";
-    loadModels(tower_directory, "base.obj", tower_assets[0].base_mesh);
-    loadModels(tower_directory, "machine_rotate.obj", tower_assets[0].rotate_mesh);
-    loadModels(tower_directory, "machine_gun.obj", tower_assets[0].gun_mesh);
+    std::string tower_dir = "Assets/Towers/source/";
+    loadModels(tower_dir, "base.obj", tower_assets[0].base_mesh);
+    loadModels(tower_dir, "machine_rotate.obj", tower_assets[0].rotate_mesh);
+    loadModels(tower_dir, "machine_gun.obj", tower_assets[0].gun_mesh);
     tower_assets[0].base_y_offset = 0.4f;
     tower_assets[0].gun_y_offset = 1.8f;
     tower_assets[0].rotate_y_offset = 0.8f;
 
-    loadModels(tower_directory, "base.obj", tower_assets[1].base_mesh);
-    loadModels(tower_directory, "rockets_rotate.obj", tower_assets[1].rotate_mesh);
-    loadModels(tower_directory, "rockets_gun.obj", tower_assets[1].gun_mesh);
+    loadModels(tower_dir, "base.obj", tower_assets[1].base_mesh);
+    loadModels(tower_dir, "rockets_rotate.obj", tower_assets[1].rotate_mesh);
+    loadModels(tower_dir, "rockets_gun.obj", tower_assets[1].gun_mesh);
     tower_assets[1].base_y_offset = 0.4f;
     tower_assets[1].gun_y_offset = 0.6f;
     tower_assets[1].rotate_y_offset = 2.8f;
 
-    loadModels(tower_directory, "base.obj", tower_assets[2].base_mesh);
-    loadModels(tower_directory, "sniper_rotate.obj", tower_assets[2].rotate_mesh);
-    loadModels(tower_directory, "sniper_gun.obj", tower_assets[2].gun_mesh);
+    loadModels(tower_dir, "base.obj", tower_assets[2].base_mesh);
+    loadModels(tower_dir, "sniper_rotate.obj", tower_assets[2].rotate_mesh);
+    loadModels(tower_dir, "sniper_gun.obj", tower_assets[2].gun_mesh);
     tower_assets[2].base_y_offset = 0.4f;
     tower_assets[2].gun_y_offset = 1.8f;
     tower_assets[2].rotate_y_offset = 0.8f;
@@ -77,7 +157,6 @@ void Game::init() {
     loadModels(troop_dir, "car.obj", troop_assets[0].base_mesh);
     loadModels(troop_dir, "tank.obj", troop_assets[1].base_mesh);
     loadModels(troop_dir, "helicopter.obj", troop_assets[2].base_mesh);
-
     loadModels(troop_dir, "Wheel.obj", troop_assets[1].wheel_mesh);
     loadModels(troop_dir, "Propellers.obj", troop_assets[2].prop_mesh);
 
@@ -86,6 +165,73 @@ void Game::init() {
     loadModels(ammo_dir, "Rocket.obj", projectile_assets.rocket_mesh);
 
     shader_id = loadShader("v_simplest.glsl", "f_simplest.glsl");
+
+    TextureBundle baseTex = {};
+    baseTex.baseColor = readTexture("Assets/Towers/textures/base/Base_BaseColor_A.png");
+    baseTex.normalMap = readTexture("Assets/Towers/textures/base/Base_GL_Normal.png");
+    baseTex.metallic = readTexture("Assets/Towers/textures/base/Base_Metallic.png");
+    baseTex.roughness = readTexture("Assets/Towers/textures/base/Base_Roughness.png");
+    baseTex.ao = readTexture("Assets/Towers/textures/base/Base_AO.png");
+    tower_assets[0].base_tex = baseTex;
+    tower_assets[1].base_tex = baseTex;
+    tower_assets[2].base_tex = baseTex;
+
+    TextureBundle mgTex = {};
+    mgTex.baseColor = readTexture("Assets/Towers/textures/machinegun/MachineGun_BaseColor_A.png");
+    mgTex.normalMap = readTexture("Assets/Towers/textures/machinegun/MachineGun_GL_Normal.png");
+    mgTex.metallic = readTexture("Assets/Towers/textures/machinegun/MachineGun_Metallic.png");
+    mgTex.roughness = readTexture("Assets/Towers/textures/machinegun/MachineGun_Roughness.png");
+    tower_assets[0].rotate_tex = mgTex;
+    tower_assets[0].gun_tex = mgTex;
+
+    TextureBundle rocketTowerTex = {};
+    rocketTowerTex.baseColor = readTexture("Assets/Towers/textures/rocket/Rockets_BaseColor_A.png");
+    rocketTowerTex.normalMap = readTexture("Assets/Towers/textures/rocket/Rockets_GL_Normal.png");
+    rocketTowerTex.metallic = readTexture("Assets/Towers/textures/rocket/Rockets_Metallic.png");
+    rocketTowerTex.roughness = readTexture("Assets/Towers/textures/rocket/Rockets_Roughness.png");
+    tower_assets[1].rotate_tex = rocketTowerTex;
+    tower_assets[1].gun_tex = rocketTowerTex;
+
+    TextureBundle sniperTex = {};
+    sniperTex.baseColor = readTexture("Assets/Towers/textures/sniper/Sniper_BaseColor_A.png");
+    sniperTex.normalMap = readTexture("Assets/Towers/textures/sniper/Sniper_GL_Normal.png");
+    sniperTex.metallic = readTexture("Assets/Towers/textures/sniper/Sniper_Metallic.png");
+    sniperTex.roughness = readTexture("Assets/Towers/textures/sniper/Sniper_Roughness.png");
+    tower_assets[2].rotate_tex = sniperTex;
+    tower_assets[2].gun_tex = sniperTex;
+
+    TextureBundle carTex = {};
+    carTex.baseColor = readTexture("Assets/Troops/textures/car/Car_Base_Color.jpg");
+    carTex.normalMap = readTexture("Assets/Troops/textures/car/Car_Normal.png");
+    carTex.metallic = readTexture("Assets/Troops/textures/car/Car_Metalic.jpg");
+    carTex.roughness = readTexture("Assets/Troops/textures/car/Car_Roughness.jpg");
+    carTex.emissive = readTexture("Assets/Troops/textures/car/Car_Emissive.jpg");
+    carTex.ao = readTexture("Assets/Troops/textures/car/Car_AO.jpg");
+    troop_assets[0].base_tex = carTex;
+
+    TextureBundle tankTex = {};
+    tankTex.baseColor = readTexture("Assets/Troops/textures/tank/Tank_Base_Color.png");
+    tankTex.normalMap = readTexture("Assets/Troops/textures/tank/Tank_Normal.png");
+    tankTex.metallic = readTexture("Assets/Troops/textures/tank/Tank_Metallic.png");
+    tankTex.roughness = readTexture("Assets/Troops/textures/tank/Tank_Roughness.png");
+    tankTex.ao = readTexture("Assets/Troops/textures/tank/Tank_AO.png");
+    troop_assets[1].base_tex = tankTex;
+
+    TextureBundle heliTex = {};
+    heliTex.baseColor = readTexture("Assets/Troops/textures/helicopter/DefaultMaterial_Base_Color.png");
+    heliTex.normalMap = readTexture("Assets/Troops/textures/helicopter/DefaultMaterial_Normal_DirectX.png");
+    heliTex.metallic = readTexture("Assets/Troops/textures/helicopter/DefaultMaterial_Metallic.png");
+    heliTex.roughness = readTexture("Assets/Troops/textures/helicopter/DefaultMaterial_Roughness.png");
+    heliTex.ao = readTexture("Assets/Troops/textures/helicopter/DefaultMaterial_Mixed_AO.png");
+    troop_assets[2].base_tex = heliTex;
+
+    TextureBundle bulletTex = {};
+    bulletTex.baseColor = readTexture("Assets/Ammo/textures/Bullet_Base_Color.png");
+    bulletTex.normalMap = readTexture("Assets/Ammo/textures/Bullet_Normal.png");
+    bulletTex.emissive = readTexture("Assets/Ammo/textures/Bullet_Emissive.png");
+
+    projectile_assets.bullet_tex = bulletTex;
+    projectile_assets.rocket_tex = bulletTex;
 }
 
 void Game::startNextWave() {
@@ -93,12 +239,12 @@ void Game::startNextWave() {
     waveActive = true;
     wave++;
     if (wave <= 3)
-        troopsRemainingInWave = 3 + wave;
+        troopsRemainingInWave = 10 + wave * 3;
     else
-        troopsRemainingInWave = 5 + (wave * 2);
+        troopsRemainingInWave = 10 + (wave * 4);
     spawnTimer = 0.0f;
-	spawn_interval = 2.0f - (wave * 0.1f);
-	if (spawn_interval < 0.1f) spawn_interval = 0.1f;
+    spawn_interval = 2.0f - (wave * 0.1f);
+    if (spawn_interval < 0.1f) spawn_interval = 0.1f;
 }
 
 void Game::update(float delta_step) {
@@ -154,12 +300,11 @@ void Game::update(float delta_step) {
         auto& tower = active_defenses[i];
         float range = tower.tower_range;
 
-        if (tower.current_cooldown > 0.0f) {
+        if (tower.current_cooldown > 0.0f)
             tower.current_cooldown -= delta_step;
-        }
 
         Troop* target = nullptr;
-        float bestDist = range;
+        float  bestDist = range;
         for (auto& troop : troops) {
             float d = sqrtf(powf(troop.x - tower.x, 2) + powf(troop.z - tower.z, 2));
             if (d < bestDist) { bestDist = d; target = &troop; }
@@ -176,7 +321,6 @@ void Game::update(float delta_step) {
                 + 0.5f * assets.rotate_y_offset
                 + 0.5f * assets.gun_y_offset;
             float gunPivotZ = tower.z;
-
             float ady = target->altitude - gunPivotY;
 
             float targetYaw = atan2f(adx, adz) * (180.0f / 3.14159f);
@@ -186,18 +330,20 @@ void Game::update(float delta_step) {
             while (yDiff < -180) yDiff += 360;
             while (yDiff > 180) yDiff -= 360;
             tower.current_yaw += yDiff * delta_step * tower.tower_rotate_speed;
-            tower.current_pitch += (targetPitch - tower.current_pitch) * delta_step * tower.tower_rotate_speed;
+            tower.current_pitch += (targetPitch - tower.current_pitch)
+                * delta_step * tower.tower_rotate_speed;
 
             float pitchDiff = targetPitch - tower.current_pitch;
 
-            if (tower.current_cooldown <= 0.0f && fabs(yDiff) < 15.0f && fabs(pitchDiff) < 10.0f) {
+            if (tower.current_cooldown <= 0.0f
+                && fabs(yDiff) < 15.0f && fabs(pitchDiff) < 10.0f)
+            {
                 float yawRad = tower.current_yaw * (3.14159f / 180.0f);
                 float pitchRad = tower.current_pitch * (3.14159f / 180.0f);
 
                 float fwdX = sinf(yawRad) * cosf(pitchRad);
                 float fwdY = sinf(pitchRad);
                 float fwdZ = cosf(yawRad) * cosf(pitchRad);
-
                 float rightX = cosf(yawRad);
                 float rightZ = -sinf(yawRad);
 
@@ -214,9 +360,11 @@ void Game::update(float delta_step) {
                     tower.nextBarrel = (tower.nextBarrel + 1) % 2;
                 }
                 else if (tower.tower_variant == TowerType::ROCKETS) {
-					float right = 1.5f;
-                    const float tubeRight[8] = { -right,  right,  -right+0.2,  right-0.2,  -right,  right,  -right+0.2,  right-0.2 };
-                    const float tubeUp[8] = { 0.30f,  0.30f,   0.10f,  0.10f,  -0.10f, -0.10f,  -0.30f, -0.30f };
+                    float right = 1.5f;
+                    const float tubeRight[8] = { -right,  right, -right + 0.2f, right - 0.2f,
+                                                 -right,  right, -right + 0.2f, right - 0.2f };
+                    const float tubeUp[8] = { 0.30f, 0.30f, 0.10f, 0.10f,
+                                                -0.10f,-0.10f,-0.30f,-0.30f };
                     int idx = tower.nextBarrel % 8;
                     muzzleFwd = 0.6f;
                     muzzleRight = tubeRight[idx];
@@ -239,7 +387,6 @@ void Game::update(float delta_step) {
                 spawnProjectile(spawnX, spawnY, spawnZ,
                     target->x, target->altitude, target->z,
                     tower.tower_dmg, isRocket);
-
                 tower.current_cooldown = tower.tower_fire_rate;
             }
         }
@@ -250,23 +397,16 @@ void Game::update(float delta_step) {
         it->y += it->vy * delta_step;
         it->z += it->vz * delta_step;
         it->life_span -= delta_step;
+
         bool destroyed = false;
         for (auto& enemy : troops) {
-            float dist = sqrtf(powf(enemy.x - it->x, 2) + powf(enemy.altitude - it->y, 2) + powf(enemy.z - it->z, 2));
-            
-            float hitbox_radius = 1.2f;
-            if (enemy.variant == CAR) {
-                hitbox_radius = 0.8f;
-            }
-            else if (enemy.variant == TANK) {
-                hitbox_radius = 1.6f;
-            }
-            else {
-                hitbox_radius = 2.0f;
-            }
-            
+            float dist = sqrtf(powf(enemy.x - it->x, 2)
+                + powf(enemy.altitude - it->y, 2)
+                + powf(enemy.z - it->z, 2));
+            float hitbox_radius = (enemy.variant == CAR) ? 0.8f
+                : (enemy.variant == TANK) ? 1.6f : 2.0f;
             if (dist < hitbox_radius) {
-                enemy.health -= it->damage; 
+                enemy.health -= it->damage;
                 destroyed = true;
                 break;
             }
@@ -282,17 +422,8 @@ void Game::update(float delta_step) {
     if (lives <= 0) { lives = 0; gameOver = true; }
 }
 
-static void renderMesh(const std::vector<VertexData>& mesh, bool useColor = true) {
-    glBegin(GL_TRIANGLES);
-    for (const auto& v : mesh) {
-        if (useColor) glColor3f(v.r, v.g, v.b);
-        glNormal3f(v.nx, v.ny, v.nz);
-        glVertex3f(v.x, v.y, v.z);
-    }
-    glEnd();
-}
-
-static bool isOnRoad(float wx, float wz, const std::vector<P>& waypoints, float halfWidth) {
+static bool isOnRoad(float wx, float wz,
+    const std::vector<P>& waypoints, float halfWidth) {
     for (int i = 0; i + 1 < (int)waypoints.size(); i++) {
         float ax = waypoints[i].x, az = waypoints[i].z;
         float bx = waypoints[i + 1].x, bz = waypoints[i + 1].z;
@@ -308,7 +439,9 @@ static bool isOnRoad(float wx, float wz, const std::vector<P>& waypoints, float 
     return false;
 }
 
-bool Game::raycastGroundPlane(float mx, float my, int winW, int winH, float& outX, float& outZ) {
+bool Game::raycastGroundPlane(float mx, float my,
+    int winW, int winH,
+    float& outX, float& outZ) {
     GLdouble mv[16], pr[16]; GLint vp[4];
     glGetDoublev(GL_MODELVIEW_MATRIX, mv);
     glGetDoublev(GL_PROJECTION_MATRIX, pr);
@@ -323,41 +456,58 @@ bool Game::raycastGroundPlane(float mx, float my, int winW, int winH, float& out
     if (fabsf(rayDy) < 0.0001f) return false;
     float t = -rayOy / rayDy;
     if (t < 0) return false;
-
     outX = (float)(ax + t * (bx - ax));
     outZ = (float)(az + t * (bz - az));
     return true;
 }
 
-void Game::render() {
+void Game::render(glm::mat4 P, glm::mat4 V) {
     glUseProgram(shader_id);
+    glEnable(GL_TEXTURE_2D);
 
-    float sun_dx = 0.5f;
-    float sun_dy = 1.0f;
-    float sun_dz = 0.5f;
+    GLint pLoc = glGetUniformLocation(shader_id, "P");
+    GLint vLoc = glGetUniformLocation(shader_id, "V");
+    GLint mLoc = glGetUniformLocation(shader_id, "M");
 
-    GLint globalDirLoc = glGetUniformLocation(shader_id, "lightDirGlobal");
-    glUniform3f(globalDirLoc, sun_dx, sun_dy, sun_dz);
+    glUniformMatrix4fv(pLoc, 1, GL_FALSE, glm::value_ptr(P));
+    glUniformMatrix4fv(vLoc, 1, GL_FALSE, glm::value_ptr(V));
+
+    glm::mat4 identityModel = glm::mat4(1.0f);
+    glUniformMatrix4fv(mLoc, 1, GL_FALSE, glm::value_ptr(identityModel));
+
+    float sun_dx = 0.5f, sun_dy = 1.0f, sun_dz = 0.5f;
+    glm::vec3 worldSunDir = glm::normalize(glm::vec3(0.5f, 1.0f, 0.5f));
+    glm::vec3 eyeSunDir = glm::mat3(V) * worldSunDir;
+
+    glUniform3f(glGetUniformLocation(shader_id, "lightDirGlobal"), eyeSunDir.x, eyeSunDir.y, eyeSunDir.z);
 
     GLint bulletActiveLoc = glGetUniformLocation(shader_id, "bulletActive");
     GLint bulletPosLoc = glGetUniformLocation(shader_id, "bulletPos");
     GLint bulletColorLoc = glGetUniformLocation(shader_id, "bulletColor");
 
     if (!active_bullets.empty()) {
-        glUniform1f(bulletActiveLoc, 1.0f); 
-        glUniform3f(bulletPosLoc, active_bullets[0].x, active_bullets[0].y, active_bullets[0].z);
-        glUniform3f(bulletColorLoc, 1.0f, 0.8f, 0.2f); 
+        glUniform1f(bulletActiveLoc, 1.0f);
+        glm::vec4 worldBulletPos = glm::vec4(active_bullets[0].x, active_bullets[0].y, active_bullets[0].z, 1.0f);
+        glm::vec4 viewBulletPos = V * worldBulletPos;
+
+        glUniform3f(bulletPosLoc, viewBulletPos.x, viewBulletPos.y, viewBulletPos.z);
+
+        glUniform3f(bulletColorLoc, 1.0f, 0.8f, 0.2f);
     }
     else {
-        glUniform1f(bulletActiveLoc, 0.0f); 
+        glUniform1f(bulletActiveLoc, 0.0f);
     }
 
     float shadowMat[16] = {
-        sun_dy,   0.0f,    0.0f,    0.0f,
-       -sun_dx,   0.0f,   -sun_dz,  0.0f,
-        0.0f,     0.0f,    sun_dy,  0.0f,
-        0.0f,     0.0f,    0.0f,    sun_dy
+        sun_dy, 0.0f, 0.0f, 0.0f,
+        -sun_dx, 0.0f, -sun_dz, 0.0f,
+        0.0f, 0.0f, sun_dy, 0.0f,
+        0.0f, 0.0f, 0.0f, sun_dy
     };
+
+    unbindTextures(shader_id);
+
+    glUniformMatrix4fv(mLoc, 1, GL_FALSE, glm::value_ptr(identityModel));
 
     glBegin(GL_QUADS);
     glColor3f(0.2f, 0.5f, 0.2f); glNormal3f(0, 1, 0);
@@ -369,78 +519,114 @@ void Game::render() {
 
     float time = (float)glfwGetTime();
 
+    // RENDER TROOPS
     for (const auto& troop : troops) {
         const auto& assets = troop_assets[(int)troop.variant];
 
-        glPushMatrix();
-        glTranslatef(troop.x, troop.altitude, troop.z);
-        glRotatef(troop.rotation_yaw, 0, 1, 0);
-        glScalef(0.3f, 0.3f, 0.3f);
+        glm::mat4 M = glm::mat4(1.0f);
+        M = glm::translate(M, glm::vec3(troop.x, troop.altitude, troop.z));
+        M = glm::rotate(M, glm::radians(troop.rotation_yaw), glm::vec3(0, 1, 0));
+        M = glm::scale(M, glm::vec3(0.3f, 0.3f, 0.3f));
+        glUniformMatrix4fv(mLoc, 1, GL_FALSE, glm::value_ptr(M));
+
+        glm::mat4 MV = V * M;
+        glm::mat3 normalMat = glm::transpose(glm::inverse(glm::mat3(MV)));
+        glUniformMatrix3fv(glGetUniformLocation(shader_id, "normalMatrix"), 1, GL_FALSE, glm::value_ptr(normalMat));
+
+        bindTextures(shader_id, assets.base_tex);
         renderMesh(assets.base_mesh, true);
 
         if (troop.variant == TroopType::TANK) {
             float wheelRollAngle = time * troop.speed * 120.0f;
-            float wheelOffsetsX[2] = { 0.0f, 0.0f };
-            float wheelOffsetsZ[2] = { -3.5f, 4.65f};
+            float wheelOffsetsZ[2] = { -3.5f, 4.65f };
             float wheelOffsetY = -1.9f;
-
             for (int w = 0; w < 2; w++) {
-                glPushMatrix();
-                glTranslatef(wheelOffsetsX[w], wheelOffsetY, wheelOffsetsZ[w]);
-                glScalef(0.95f, 0.95f, 0.95f);
-                glRotatef(wheelRollAngle, 1.0f, 0.0f, 0.0f);
-                glRotatef(90.0f, 1.0f, 0.0f, 0.0f);
+                glm::mat4 mWheel = M;
+                mWheel = glm::translate(mWheel, glm::vec3(0.0f, wheelOffsetY, wheelOffsetsZ[w]));
+                mWheel = glm::scale(mWheel, glm::vec3(0.95f, 0.95f, 0.95f));
+                mWheel = glm::rotate(mWheel, glm::radians(wheelRollAngle), glm::vec3(1.0f, 0.0f, 0.0f));
+                mWheel = glm::rotate(mWheel, glm::radians(90.0f), glm::vec3(1.0f, 0.0f, 0.0f));
+                glUniformMatrix4fv(mLoc, 1, GL_FALSE, glm::value_ptr(mWheel));
+
+                bindTextures(shader_id, assets.base_tex);
                 renderMesh(assets.wheel_mesh, true);
-                glPopMatrix();
             }
         }
 
         if (troop.variant == TroopType::HELICOPTER) {
             float propSpinAngle = time * 360.0f;
-            glPushMatrix();
-            glTranslatef(0.0f, troop.altitude - 0.5f, 0.5f);
-            glRotatef(propSpinAngle, 0.0f, 1.0f, 0.0f);
-            renderMesh(assets.prop_mesh, true);
-            glPopMatrix();
+            glm::mat4 mProp = M;
+            mProp = glm::translate(mProp, glm::vec3(0.0f, troop.altitude - 0.5f, 0.5f));
+            mProp = glm::rotate(mProp, glm::radians(propSpinAngle), glm::vec3(0.0f, 1.0f, 0.0f));
+            glUniformMatrix4fv(mLoc, 1, GL_FALSE, glm::value_ptr(mProp));
 
+            bindTextures(shader_id, assets.base_tex);
+            renderMesh(assets.prop_mesh, true);
         }
-        glPopMatrix();
     }
 
+    // RENDER TOWERS
     for (const auto& tower : active_defenses) {
         const auto& assets = tower_assets[(int)tower.tower_variant];
 
-        glPushMatrix();
-        glTranslatef(tower.x, assets.base_y_offset, tower.z);
-        glScalef(0.5f, 0.5f, 0.5f);
-        renderMesh(assets.base_mesh, true);
-        glTranslatef(0, assets.rotate_y_offset, 0);
-        glRotatef(tower.current_yaw, 0, 1, 0);
-        renderMesh(assets.rotate_mesh, true);
-        glTranslatef(0, assets.gun_y_offset, 0);
-        glRotatef(-tower.current_pitch, 1, 0, 0);
-        renderMesh(assets.gun_mesh, true);
-        glPopMatrix();
+        // --- BASE ---
+        glm::mat4 mBase = glm::mat4(1.0f);
+        mBase = glm::translate(mBase, glm::vec3(tower.x, assets.base_y_offset, tower.z));
+        mBase = glm::scale(mBase, glm::vec3(0.5f, 0.5f, 0.5f));
+        glUniformMatrix4fv(mLoc, 1, GL_FALSE, glm::value_ptr(mBase));
 
+        glm::mat3 nBase = glm::transpose(glm::inverse(glm::mat3(V * mBase)));
+        glUniformMatrix3fv(glGetUniformLocation(shader_id, "normalMatrix"), 1, GL_FALSE, glm::value_ptr(nBase));
+
+        bindTextures(shader_id, assets.base_tex);
+        renderMesh(assets.base_mesh, true);
+
+        // --- ROTATE ---
+        glm::mat4 mRotate = glm::translate(mBase, glm::vec3(0.0f, assets.rotate_y_offset, 0.0f));
+        mRotate = glm::rotate(mRotate, glm::radians(tower.current_yaw), glm::vec3(0.0f, 1.0f, 0.0f));
+        glUniformMatrix4fv(mLoc, 1, GL_FALSE, glm::value_ptr(mRotate));
+
+        glm::mat3 nRotate = glm::transpose(glm::inverse(glm::mat3(V * mRotate)));
+        glUniformMatrix3fv(glGetUniformLocation(shader_id, "normalMatrix"), 1, GL_FALSE, glm::value_ptr(nRotate));
+
+        bindTextures(shader_id, assets.rotate_tex);
+        renderMesh(assets.rotate_mesh, true);
+
+        // --- GUN ---
+        glm::mat4 mGun = glm::translate(mRotate, glm::vec3(0.0f, assets.gun_y_offset, 0.0f));
+        mGun = glm::rotate(mGun, glm::radians(-tower.current_pitch), glm::vec3(1.0f, 0.0f, 0.0f));
+        glUniformMatrix4fv(mLoc, 1, GL_FALSE, glm::value_ptr(mGun));
+
+        glm::mat3 nGun = glm::transpose(glm::inverse(glm::mat3(V * mGun)));
+        glUniformMatrix3fv(glGetUniformLocation(shader_id, "normalMatrix"), 1, GL_FALSE, glm::value_ptr(nGun));
+
+        bindTextures(shader_id, assets.gun_tex);
+        renderMesh(assets.gun_mesh, true);
+
+        // --- SHADOW PASS ---
+        unbindTextures(shader_id);
         glDisable(GL_LIGHTING);
         glEnable(GL_BLEND);
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
         glEnable(GL_POLYGON_OFFSET_FILL);
         glPolygonOffset(1.0f, 1.0f);
-
-        glPushMatrix();
-        glMultMatrixf(shadowMat);
-        glTranslatef(tower.x, assets.base_y_offset, tower.z);
-        glScalef(0.5f, 0.5f, 0.5f);
         glColor4f(0.05f, 0.12f, 0.05f, 0.45f);
+
+        // Pass an identity/dummy 3x3 normal matrix for shadows to prevent CPU/GPU NaN errors
+        glm::mat3 dummyNormal = glm::mat3(1.0f);
+        glUniformMatrix3fv(glGetUniformLocation(shader_id, "normalMatrix"), 1, GL_FALSE, glm::value_ptr(dummyNormal));
+
+        glm::mat4 mShadowBase = glm::make_mat4(shadowMat) * mBase;
+        glUniformMatrix4fv(mLoc, 1, GL_FALSE, glm::value_ptr(mShadowBase));
         renderMesh(assets.base_mesh, false);
-        glTranslatef(0, assets.rotate_y_offset, 0);
-        glRotatef(tower.current_yaw, 0, 1, 0);
+
+        glm::mat4 mShadowRotate = glm::make_mat4(shadowMat) * mRotate;
+        glUniformMatrix4fv(mLoc, 1, GL_FALSE, glm::value_ptr(mShadowRotate));
         renderMesh(assets.rotate_mesh, false);
-        glTranslatef(0, assets.gun_y_offset, 0);
-        glRotatef(-tower.current_pitch, 1, 0, 0);
+
+        glm::mat4 mShadowGun = glm::make_mat4(shadowMat) * mGun;
+        glUniformMatrix4fv(mLoc, 1, GL_FALSE, glm::value_ptr(mShadowGun));
         renderMesh(assets.gun_mesh, false);
-        glPopMatrix();
 
         glDisable(GL_POLYGON_OFFSET_FILL);
         glDisable(GL_BLEND);
@@ -449,76 +635,71 @@ void Game::render() {
 
     glUseProgram(0);
 
+    // BACKGROUND/SCENE SHADOW PASS
     glDisable(GL_LIGHTING);
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-
     glEnable(GL_POLYGON_OFFSET_FILL);
-    glPolygonOffset(-1.0f, -1.0f);
-
-    glPushMatrix();
-    glMultMatrixf(shadowMat);
-
+    glPolygonOffset(1.0f, 1.0f);
     glColor4f(0.05f, 0.12f, 0.05f, 0.45f);
 
+    glUseProgram(shader_id);
+
+    unbindTextures(shader_id);
+
+    glm::mat3 dummyNormal = glm::mat3(1.0f);
+    glUniformMatrix3fv(glGetUniformLocation(shader_id, "normalMatrix"), 1, GL_FALSE, glm::value_ptr(dummyNormal));
+
     for (const auto& troop : troops) {
-        glPushMatrix();
-        glTranslatef(troop.x, troop.altitude, troop.z);
-        glRotatef(troop.rotation_yaw, 0, 1, 0);
-        glScalef(0.3f, 0.3f, 0.3f);
+        glm::mat4 M = glm::mat4(1.0f);
+        M = glm::translate(M, glm::vec3(troop.x, troop.altitude, troop.z));
+        M = glm::rotate(M, glm::radians(troop.rotation_yaw), glm::vec3(0, 1, 0));
+        M = glm::scale(M, glm::vec3(0.3f, 0.3f, 0.3f));
+        glm::mat4 mShadow = glm::make_mat4(shadowMat) * M;
+        glUniformMatrix4fv(mLoc, 1, GL_FALSE, glm::value_ptr(mShadow));
+
         renderMesh(troop_assets[(int)troop.variant].base_mesh, false);
-        glPopMatrix();
     }
-
-    for (const auto& tower : active_defenses) {
-        const auto& assets = tower_assets[(int)tower.tower_variant];
-        glPushMatrix();
-        glTranslatef(tower.x, assets.base_y_offset, tower.z);
-        glScalef(0.5f, 0.5f, 0.5f);
-        renderMesh(assets.base_mesh, false);
-        glTranslatef(0, assets.rotate_y_offset, 0);
-        glRotatef(tower.current_yaw, 0, 1, 0);
-        renderMesh(assets.rotate_mesh, false);
-        glTranslatef(0, assets.gun_y_offset, 0);
-        glRotatef(-tower.current_pitch, 1, 0, 0);
-        renderMesh(assets.gun_mesh, false);
-        glPopMatrix();
-    }
-
-    glPopMatrix();
 
     glDisable(GL_POLYGON_OFFSET_FILL);
     glDisable(GL_BLEND);
     glEnable(GL_LIGHTING);
 
-    glDisable(GL_LIGHTING);
+    // BULLETS PASS
     for (const auto& b : active_bullets) {
         float spd = sqrtf(b.vx * b.vx + b.vy * b.vy + b.vz * b.vz);
         float yaw = atan2f(b.vx, b.vz) * 180.0f / 3.14159f;
         float pitch = -asinf(b.vy / spd) * 180.0f / 3.14159f;
 
-        glPushMatrix();
-        glTranslatef(b.x, b.y, b.z);
-        glRotatef(yaw, 0, 1, 0);
-        glRotatef(pitch, 1, 0, 0);
-        glRotatef(-90.0f, 0.0f, 1.0f, 0.0f);
+        glm::mat4 M = glm::mat4(1.0f);
+        M = glm::translate(M, glm::vec3(b.x, b.y, b.z));
+        M = glm::rotate(M, glm::radians(yaw), glm::vec3(0, 1, 0));
+        M = glm::rotate(M, glm::radians(pitch), glm::vec3(1, 0, 0));
+        M = glm::rotate(M, glm::radians(-90.0f), glm::vec3(0, 1, 0));
 
         if (b.isRocket) {
-            glScalef(0.15f, 0.15f, 0.15f);
+            M = glm::scale(M, glm::vec3(0.15f, 0.15f, 0.15f));
+            glUniformMatrix4fv(mLoc, 1, GL_FALSE, glm::value_ptr(M));
+            bindTextures(shader_id, projectile_assets.rocket_tex);
             renderMesh(projectile_assets.rocket_mesh, true);
         }
         else {
-            glScalef(0.1f, 0.1f, 0.1f);
+            M = glm::scale(M, glm::vec3(0.1f, 0.1f, 0.1f));
+            glUniformMatrix4fv(mLoc, 1, GL_FALSE, glm::value_ptr(M));
+            bindTextures(shader_id, projectile_assets.bullet_tex);
             renderMesh(projectile_assets.bullet_mesh, true);
         }
-        glPopMatrix();
     }
-    glEnable(GL_LIGHTING);
 
+    unbindTextures(shader_id);
+    glUseProgram(0);
+    glDisable(GL_TEXTURE_2D);
+
+    // GHOST PREVIEW PLACEMENT
     if (isBuilding && !gameOver) {
         double mx, my;
-        glfwGetCursorPos(glfwGetCurrentContext(), &mx, &my);
         int win_w, win_h;
+        glfwGetCursorPos(glfwGetCurrentContext(), &mx, &my);
         glfwGetWindowSize(glfwGetCurrentContext(), &win_w, &win_h);
 
         float ground_x, ground_z;
@@ -529,7 +710,6 @@ void Game::render() {
 
         TowerInstance preview = getTowerDefaults(ghostType);
         float ghostRange = preview.tower_range;
-
         bool onRoad = isOnRoad(ghost_wx, ghost_wz, pathWaypoints, game_pathway.roadWidth);
 
         const auto& assets = tower_assets[(int)ghostType];
@@ -540,6 +720,7 @@ void Game::render() {
         glPushMatrix();
         glTranslatef(ghost_wx, 0.1f, ghost_wz);
         glBegin(GL_LINE_LOOP);
+        glColor4f(1.0f, 1.0f, 1.0f, 0.6f);
         for (int i = 0; i < 36; i++) {
             float a = i * 10.0f * 3.1415f / 180.0f;
             glVertex3f(cosf(a) * ghostRange, 0, sinf(a) * ghostRange);
@@ -547,19 +728,26 @@ void Game::render() {
         glEnd();
         glPopMatrix();
 
-        glPushMatrix();
-        glTranslatef(ghost_wx, assets.base_y_offset, ghost_wz);
-        glScalef(0.5f, 0.5f, 0.5f);
+        glUseProgram(shader_id);
+        glm::mat4 mGhost = glm::mat4(1.0f);
+        mGhost = glm::translate(mGhost, glm::vec3(ghost_wx, assets.base_y_offset, ghost_wz));
+        mGhost = glm::scale(mGhost, glm::vec3(0.5f, 0.5f, 0.5f));
+        glUniformMatrix4fv(mLoc, 1, GL_FALSE, glm::value_ptr(mGhost));
+
         if (onRoad) glColor4f(1.0f, 0.3f, 0.3f, 0.5f);
-        else        glColor4f(1.0f, 1.0f, 1.0f, 0.5f);
+        else glColor4f(1.0f, 1.0f, 1.0f, 0.5f);
 
         renderMesh(assets.base_mesh, false);
-        glTranslatef(0, assets.rotate_y_offset, 0);
-        renderMesh(assets.rotate_mesh, false);
-        glTranslatef(0, assets.gun_y_offset, 0);
-        renderMesh(assets.gun_mesh, false);
-        glPopMatrix();
 
+        mGhost = glm::translate(mGhost, glm::vec3(0.0f, assets.rotate_y_offset, 0.0f));
+        glUniformMatrix4fv(mLoc, 1, GL_FALSE, glm::value_ptr(mGhost));
+        renderMesh(assets.rotate_mesh, false);
+
+        mGhost = glm::translate(mGhost, glm::vec3(0.0f, assets.gun_y_offset, 0.0f));
+        glUniformMatrix4fv(mLoc, 1, GL_FALSE, glm::value_ptr(mGhost));
+        renderMesh(assets.gun_mesh, false);
+
+        glUseProgram(0);
         glDisable(GL_BLEND);
         glEnable(GL_LIGHTING);
     }
@@ -591,13 +779,12 @@ void Game::spawnTroop() {
     t.rotation_yaw = 0.0f;
 
     int roll = rand() % 100;
+    if (roll < 50) t.variant = CAR;
+    else if (roll < 80) t.variant = TANK;
+    else                t.variant = HELICOPTER;
 
-    if (roll < 50)       t.variant = CAR;
-    else if (roll < 80)  t.variant = TANK;
-    else                 t.variant = HELICOPTER;
-
-    if (t.variant == CAR) { t.health = 40;  t.speed = 3.5f; t.altitude = 0.8f; }
-    else if (t.variant == TANK) { t.health = 150; t.speed = 2.0f; t.altitude = 1.1f; }
+    if (t.variant == CAR) { t.health = 40;  t.speed = 3.5f;  t.altitude = 0.8f; }
+    else if (t.variant == TANK) { t.health = 150; t.speed = 2.0f;  t.altitude = 1.1f; }
     else { t.health = 60;  t.speed = 12.0f; t.altitude = 6.0f; }
 
     troops.push_back(t);
@@ -612,8 +799,10 @@ void Game::renderHUD() {
     glDisable(GL_LIGHTING); glDisable(GL_DEPTH_TEST); glDisable(GL_TEXTURE_2D);
 
     glColor3f(1, 1, 0);
-    std::string wave_msg = (wave > 0) ? "  Wave: " + std::to_string(wave) : "  Press [SPACE] to start";
-    std::string hud = "Gold: " + std::to_string(gold) + "  Lives: " + std::to_string(lives) + wave_msg;
+    std::string wave_msg = (wave > 0) ? "  Wave: " + std::to_string(wave)
+        : "  Press [SPACE] to start";
+    std::string hud = "Gold: " + std::to_string(gold)
+        + "  Lives: " + std::to_string(lives) + wave_msg;
     glRasterPos2f(20, 30);
     for (char c : hud) glutBitmapCharacter(GLUT_BITMAP_9_BY_15, c);
 
@@ -627,24 +816,18 @@ void Game::renderHUD() {
     if (waveEndMessageTimer > 0.0f) {
         glColor3f(0.0f, 1.0f, 0.0f);
         std::string msg = "Wave " + std::to_string(wave) + " complete";
-
-        int textWidth = glutBitmapLength(GLUT_BITMAP_HELVETICA_18, (const unsigned char*)msg.c_str());
-        float centerX = (W - textWidth) / 2.0f;
-        float centerY = H / 2.0f;
-
-        glRasterPos2f(centerX, centerY);
+        int   textWidth = glutBitmapLength(GLUT_BITMAP_HELVETICA_18,
+            (const unsigned char*)msg.c_str());
+        glRasterPos2f((W - textWidth) / 2.0f, H / 2.0f);
         for (char c : msg) glutBitmapCharacter(GLUT_BITMAP_HELVETICA_18, c);
     }
 
     if (gameOver) {
         glColor3f(1.0f, 0.0f, 0.0f);
         std::string msg = "GAME OVER";
-
-        int textWidth = glutBitmapLength(GLUT_BITMAP_HELVETICA_18, (const unsigned char*)msg.c_str());
-        float centerX = (W - textWidth) / 2.0f;
-        float centerY = H / 2.0f;
-
-        glRasterPos2f(centerX, centerY);
+        int textWidth = glutBitmapLength(GLUT_BITMAP_HELVETICA_18,
+            (const unsigned char*)msg.c_str());
+        glRasterPos2f((W - textWidth) / 2.0f, H / 2.0f);
         for (char c : msg) glutBitmapCharacter(GLUT_BITMAP_HELVETICA_18, c);
     }
 
@@ -653,68 +836,8 @@ void Game::renderHUD() {
     glMatrixMode(GL_MODELVIEW);  glPopMatrix();
 }
 
-void Game::selectTowerType(int i) { 
-    if (i >= 0 && i <= 2) selectedType = (TowerType)i; 
-}
-
-void Game::loadModels(std::string root, std::string file, std::vector<VertexData>& buffer) {
-    tinyobj::attrib_t attr; std::vector<tinyobj::shape_t> shp; std::vector<tinyobj::material_t> mat; std::string w, e;
-    if (!tinyobj::LoadObj(&attr, &shp, &mat, &w, &e, (root + file).c_str(), root.c_str())) return;
-    for (const auto& s : shp) {
-        size_t off = 0;
-        for (size_t f = 0; f < s.mesh.num_face_vertices.size(); f++) {
-            int fv = s.mesh.num_face_vertices[f];
-            for (size_t v = 0; v < fv; v++) {
-                tinyobj::index_t idx = s.mesh.indices[off + v];
-                VertexData vd;
-                vd.x = attr.vertices[3 * idx.vertex_index + 0];
-                vd.y = attr.vertices[3 * idx.vertex_index + 1];
-                vd.z = attr.vertices[3 * idx.vertex_index + 2];
-                if (idx.normal_index >= 0) {
-                    vd.nx = attr.normals[3 * idx.normal_index + 0];
-                    vd.ny = attr.normals[3 * idx.normal_index + 1];
-                    vd.nz = attr.normals[3 * idx.normal_index + 2];
-                }
-                else {
-                    vd.nx = 0; vd.ny = 1; vd.nz = 0;
-                }
-                int mat_id = s.mesh.material_ids[f];
-                if (mat_id >= 0 && mat_id < (int)mat.size()) {
-                    vd.r = mat[mat_id].diffuse[0];
-                    vd.g = mat[mat_id].diffuse[1];
-                    vd.b = mat[mat_id].diffuse[2];
-                }
-                else {
-                    vd.r = 0.4f; vd.g = 0.4f; vd.b = 0.45f;
-                }
-                buffer.push_back(vd);
-            }
-            off += fv;
-        }
-    }
-}
-
-void Game::loadTroopWave(std::string resource_path) {
-    std::ifstream wave_input_stream(resource_path);
-    if (!wave_input_stream.is_open()) return;
-    std::string troop_variant;
-    float current_move_speed, current_max_hp;
-    while (wave_input_stream >> troop_variant >> current_move_speed >> current_max_hp) {
-        Troop troop_instance;
-        troop_instance.x = pathWaypoints[0].x;
-        troop_instance.z = pathWaypoints[0].z;
-        troop_instance.currentWaypoint = 1;
-        troop_instance.speed = current_move_speed;
-        troop_instance.health = current_max_hp;
-        troops.push_back(troop_instance);
-    }
-    wave_input_stream.close();
-}
-
-void Game::tileCenter(int col_idx, int row_idx, float& world_x_pos, float& world_z_pos) {
-    float half = 24 * 5.0f * 0.5f;
-    world_x_pos = -half + col_idx * 5.0f + 2.5f;
-    world_z_pos = -half + row_idx * 5.0f + 2.5f;
+void Game::selectTowerType(int i) {
+    if (i >= 0 && i <= 2) selectedType = (TowerType)i;
 }
 
 void Game::toggleBuildMode(int typeIndex) {
@@ -726,68 +849,161 @@ void Game::toggleBuildMode(int typeIndex) {
 void Game::tryPlaceTower(int mouse_x, int mouse_y, Camera& world_camera) {
     if (!isBuilding) return;
 
-    TowerInstance turret_unit = getTowerDefaults(selectedType);
-
-    int current_cost = turret_unit.cost;
-    if (gold < current_cost) return;
+    TowerInstance turret = getTowerDefaults(selectedType);
+    if (gold < turret.cost) return;
     if (isOnRoad(ghost_wx, ghost_wz, pathWaypoints, game_pathway.roadWidth)) return;
-    
-    turret_unit.x = ghost_wx;
-    turret_unit.z = ghost_wz;
-    turret_unit.current_yaw = 0.0f;
 
-    active_defenses.push_back(turret_unit);
-    gold -= current_cost;
+    for (const auto& t : active_defenses) {
+        float dx = t.x - ghost_wx;
+        float dz = t.z - ghost_wz;
+
+        if ((dx * dx + dz * dz) < 4.0f) {
+            std::cout << "Placement blocked: Too close to another tower." << std::endl;
+            return;
+        }
+    }
+
+    turret.x = ghost_wx;
+    turret.z = ghost_wz;
+    turret.current_yaw = 0.0f;
+
+    active_defenses.push_back(turret);
+    gold -= turret.cost;
 
     std::cout << "Postawiono wieze typu " << (int)selectedType
         << " | X=" << ghost_wx << " Z=" << ghost_wz
         << " | Zloto: " << gold << std::endl;
 }
 
+void Game::loadModels(std::string root, std::string file, std::vector<VertexData>& buffer) {
+    tinyobj::attrib_t                attr;
+    std::vector<tinyobj::shape_t>    shp;
+    std::vector<tinyobj::material_t> mat;
+    std::string w, e;
+
+    if (!tinyobj::LoadObj(&attr, &shp, &mat, &w, &e,
+        (root + file).c_str(), root.c_str())) return;
+
+    for (const auto& s : shp) {
+        size_t off = 0;
+        for (size_t f = 0; f < s.mesh.num_face_vertices.size(); f++) {
+            int fv = s.mesh.num_face_vertices[f];
+            for (size_t v = 0; v < fv; v++) {
+                tinyobj::index_t idx = s.mesh.indices[off + v];
+                VertexData vd;
+
+                vd.x = attr.vertices[3 * idx.vertex_index + 0];
+                vd.y = attr.vertices[3 * idx.vertex_index + 1];
+                vd.z = attr.vertices[3 * idx.vertex_index + 2];
+
+                if (idx.normal_index >= 0) {
+                    vd.nx = attr.normals[3 * idx.normal_index + 0];
+                    vd.ny = attr.normals[3 * idx.normal_index + 1];
+                    vd.nz = attr.normals[3 * idx.normal_index + 2];
+                }
+                else {
+                    vd.nx = 0; vd.ny = 1; vd.nz = 0;
+                }
+
+                if (idx.texcoord_index >= 0) {
+                    vd.u = attr.texcoords[2 * idx.texcoord_index + 0];
+                    vd.v = attr.texcoords[2 * idx.texcoord_index + 1];
+                }
+                else {
+                    vd.u = 0.0f;
+                    vd.v = 0.0f;
+                }
+
+                int mat_id = s.mesh.material_ids[f];
+                if (mat_id >= 0 && mat_id < (int)mat.size()) {
+                    vd.r = mat[mat_id].diffuse[0];
+                    vd.g = mat[mat_id].diffuse[1];
+                    vd.b = mat[mat_id].diffuse[2];
+                }
+                else {
+                    vd.r = 0.4f; vd.g = 0.4f; vd.b = 0.45f;
+                }
+
+                buffer.push_back(vd);
+            }
+            off += fv;
+        }
+    }
+}
+
+void Game::loadTroopWave(std::string resource_path) {
+    std::ifstream f(resource_path);
+    if (!f.is_open()) return;
+    std::string variant;
+    float speed, hp;
+    while (f >> variant >> speed >> hp) {
+        Troop t;
+        t.x = pathWaypoints[0].x;
+        t.z = pathWaypoints[0].z;
+        t.currentWaypoint = 1;
+        t.speed = speed;
+        t.health = hp;
+        troops.push_back(t);
+    }
+}
+
+void Game::tileCenter(int col, int row,
+    float& world_x, float& world_z) {
+    float half = 24 * 5.0f * 0.5f;
+    world_x = -half + col * 5.0f + 2.5f;
+    world_z = -half + row * 5.0f + 2.5f;
+}
+
 GLuint Game::loadShader(const char* vertexPath, const char* fragmentPath) {
-    std::string vertexCode;
-    std::string fragmentCode;
-    std::ifstream vShaderFile;
-    std::ifstream fShaderFile;
+    std::string  vertexCode, fragmentCode;
+    std::ifstream vFile, fFile;
 
     try {
-        vShaderFile.open(vertexPath);
-        fShaderFile.open(fragmentPath);
-        std::stringstream vShaderStream, fShaderStream;
-
-        vShaderStream << vShaderFile.rdbuf();
-        fShaderStream << fShaderFile.rdbuf();
-
-        vShaderFile.close();
-        fShaderFile.close();
-
-        vertexCode = vShaderStream.str();
-        fragmentCode = fShaderStream.str();
+        vFile.open(vertexPath);  fFile.open(fragmentPath);
+        std::stringstream vs, fs;
+        vs << vFile.rdbuf();  fs << fFile.rdbuf();
+        vFile.close();        fFile.close();
+        vertexCode = vs.str();
+        fragmentCode = fs.str();
     }
-    catch (std::ifstream::failure& e) {
+    catch (std::ifstream::failure&) {
         std::cout << "Blad: Nie udalo sie wczytac plikow shadera!" << std::endl;
     }
 
-    const char* vShaderCode = vertexCode.c_str();
-    const char* fShaderCode = fragmentCode.c_str();
+    const char* vSrc = vertexCode.c_str();
+    const char* fSrc = fragmentCode.c_str();
 
-    GLuint vertex, fragment;
-
-    vertex = glCreateShader(GL_VERTEX_SHADER);
-    glShaderSource(vertex, 1, &vShaderCode, NULL);
+    GLuint vertex = glCreateShader(GL_VERTEX_SHADER);
+    glShaderSource(vertex, 1, &vSrc, NULL);
     glCompileShader(vertex);
 
-    fragment = glCreateShader(GL_FRAGMENT_SHADER);
-    glShaderSource(fragment, 1, &fShaderCode, NULL);
+    GLint success;
+    glGetShaderiv(vertex, GL_COMPILE_STATUS, &success);
+    if (!success) {
+        char infoLog[512];
+        glGetShaderInfoLog(vertex, 512, NULL, infoLog);
+        std::cout << "VERTEX SHADER COMPILE ERROR:\n" << infoLog << std::endl;
+    }
+
+    GLuint fragment = glCreateShader(GL_FRAGMENT_SHADER);
+    glShaderSource(fragment, 1, &fSrc, NULL);
     glCompileShader(fragment);
 
-    GLuint programID = glCreateProgram();
-    glAttachShader(programID, vertex);
-    glAttachShader(programID, fragment);
-    glLinkProgram(programID);
+    GLuint prog = glCreateProgram();
+    glAttachShader(prog, vertex);
+    glAttachShader(prog, fragment);
+    glLinkProgram(prog);
+
+    GLint linked;
+    glGetProgramiv(prog, GL_LINK_STATUS, &linked);
+
+    if (!linked) {
+        char infoLog[1024];
+        glGetProgramInfoLog(prog, 1024, NULL, infoLog);
+        std::cout << "SHADER LINK ERROR:\n" << infoLog << std::endl;
+    }
 
     glDeleteShader(vertex);
     glDeleteShader(fragment);
-
-    return programID;
+    return prog;
 }

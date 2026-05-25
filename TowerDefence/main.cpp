@@ -6,6 +6,11 @@
 #include <cmath>
 #include "Game.h"
 #include "Camera.h"
+#include "lodepng.h"
+
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/type_ptr.hpp>
 
 static Game   g_game;
 static Camera g_camera;
@@ -106,7 +111,7 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
         if (key == GLFW_KEY_P) g_game.paused = !g_game.paused;
         if (key == GLFW_KEY_F) {
             auto& s = g_game.gameSpeed;
-            s = (s == 1.0f) ? 0.5f : (s == 2.0f) ? 3.0f : 1.0f;
+            s = (s == 1.0f) ? 2.0f : (s == 2.0f) ? 3.0f : 1.0f;
         }
     }
 }
@@ -195,16 +200,27 @@ int main(int argc, char** argv) {
 
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-        GLfloat light_ambient[] = { 0.2f, 0.2f, 0.2f, 1.0f }; 
-        GLfloat light_diffuse[] = { 0.8f, 0.8f, 0.8f, 1.0f }; 
-        GLfloat light_specular[] = { 1.0f, 1.0f, 1.0f, 1.0f }; 
+        glm::mat4 P = glm::perspective(glm::radians(45.0f), (float)win_w / (float)win_h, 0.1f, 200.0f);
 
-        glLightfv(GL_LIGHT0, GL_AMBIENT, light_ambient);
-        glLightfv(GL_LIGHT0, GL_DIFFUSE, light_diffuse);
-        glLightfv(GL_LIGHT0, GL_SPECULAR, light_specular);
+        float pitchRad = glm::radians(g_camera.angleX);
+        float yawRad = glm::radians(g_camera.angleY);
 
-        g_camera.apply();
-        g_game.render();
+        glm::vec3 camera_target = glm::vec3(g_camera.cx, 0.0f, g_camera.cz);
+
+        float eyeX = camera_target.x - g_camera.zoom * sin(yawRad) * cos(pitchRad);
+        float eyeY = camera_target.y + g_camera.zoom * sin(pitchRad);
+        float eyeZ = camera_target.z + g_camera.zoom * cos(yawRad) * cos(pitchRad);
+
+        glm::vec3 camera_eye = glm::vec3(eyeX, eyeY, eyeZ);
+
+        glm::mat4 V = glm::lookAt(camera_eye, camera_target, glm::vec3(0.0f, 1.0f, 0.0f));
+
+        glMatrixMode(GL_PROJECTION);
+        glLoadMatrixf(glm::value_ptr(P));
+        glMatrixMode(GL_MODELVIEW);
+        glLoadMatrixf(glm::value_ptr(V));
+
+        g_game.render(P, V);
 
         glfwSwapBuffers(window);
         glfwPollEvents();
