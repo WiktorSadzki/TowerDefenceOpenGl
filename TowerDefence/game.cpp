@@ -47,8 +47,17 @@ GLuint Game::readTexture(const char* filename) {
 
 // Binds all PBR maps and flags to the shader program locations
 static void bindTextures(GLuint shader, const TextureBundle& bundle_config) {
+    if (bundle_config.baseColor == 0) {
+        glUniform1f(glGetUniformLocation(shader, "hasBaseColor"), 0.0f);
+        return;
+    }
+
     glUniform1i(glGetUniformLocation(shader, "texBaseColor"), 0);
     glUniform1i(glGetUniformLocation(shader, "texEmissive"), 1);
+    glUniform1i(glGetUniformLocation(shader, "texNormal"), 2);
+    glUniform1i(glGetUniformLocation(shader, "texMetallic"), 3);
+    glUniform1i(glGetUniformLocation(shader, "texRoughness"), 4);
+    glUniform1i(glGetUniformLocation(shader, "texAO"), 5);
 
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, bundle_config.baseColor);
@@ -59,6 +68,26 @@ static void bindTextures(GLuint shader, const TextureBundle& bundle_config) {
     glBindTexture(GL_TEXTURE_2D, bundle_config.emissive);
     glUniform1f(glGetUniformLocation(shader, "hasEmissive"),
         bundle_config.emissive ? 1.0f : 0.0f);
+
+    glActiveTexture(GL_TEXTURE2);
+    glBindTexture(GL_TEXTURE_2D, bundle_config.normalMap);
+    glUniform1f(glGetUniformLocation(shader, "hasNormal"),
+        bundle_config.normalMap ? 1.0f : 0.0f);
+    
+    glActiveTexture(GL_TEXTURE3);
+	glBindTexture(GL_TEXTURE_2D, bundle_config.metallic);
+    glUniform1f(glGetUniformLocation(shader, "hasMetallic"),
+        bundle_config.metallic ? 1.0f : 0.0f);
+
+    glActiveTexture(GL_TEXTURE4);
+    glBindTexture(GL_TEXTURE_2D, bundle_config.roughness);
+    glUniform1f(glGetUniformLocation(shader, "hasRoughness"),
+        bundle_config.roughness ? 1.0f : 0.0f);
+
+    glActiveTexture(GL_TEXTURE5);
+    glBindTexture(GL_TEXTURE_2D, bundle_config.ao);
+    glUniform1f(glGetUniformLocation(shader, "hasAO"),
+        bundle_config.ao ? 1.0f : 0.0f);
 
     glActiveTexture(GL_TEXTURE0);
 }
@@ -73,10 +102,11 @@ static void unbindTextures(GLuint shader) {
     glUniform1f(glGetUniformLocation(shader, "hasNormal"), 0.0f);
     glUniform1f(glGetUniformLocation(shader, "hasMetallic"), 0.0f);
     glUniform1f(glGetUniformLocation(shader, "hasRoughness"), 0.0f);
-    glUniform1f(glGetUniformLocation(shader, "hasEmissive"), 0.0f);
     glUniform1f(glGetUniformLocation(shader, "hasAO"), 0.0f);
+    glUniform1f(glGetUniformLocation(shader, "hasEmissive"), 0.0f);
     glActiveTexture(GL_TEXTURE0);
 }
+
 
 static void renderMesh(const std::vector<VertexData>& mesh, bool useColor = true) {
     glBegin(GL_TRIANGLES);
@@ -519,6 +549,65 @@ void Game::render(glm::mat4 P, glm::mat4 V) {
 
     float time = (float)glfwGetTime();
 
+    // RENDER SHADOWS
+    glDisable(GL_LIGHTING);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glDepthMask(GL_FALSE);
+    glDisable(GL_DEPTH_TEST);
+    glColor4f(0.05f, 0.12f, 0.05f, 0.45f);
+
+    glClear(GL_STENCIL_BUFFER_BIT);
+    glEnable(GL_STENCIL_TEST);
+    glStencilFunc(GL_EQUAL, 0, 0xFF);
+    glStencilOp(GL_KEEP, GL_KEEP, GL_INCR);
+
+    glUseProgram(shader_id);
+    unbindTextures(shader_id);
+
+    glm::mat3 shadowNormals = glm::mat3(1.0f);
+    glUniformMatrix3fv(glGetUniformLocation(shader_id, "normalMatrix"), 1, GL_FALSE, glm::value_ptr(shadowNormals));
+
+    for (const auto& tower : active_defenses) {
+        const auto& assets = tower_assets[(int)tower.tower_variant];
+
+        glm::mat4 mBase = glm::mat4(1.0f);
+        mBase = glm::translate(mBase, glm::vec3(tower.x, assets.base_y_offset, tower.z));
+        mBase = glm::scale(mBase, glm::vec3(0.5f, 0.5f, 0.5f));
+        glm::mat4 mShadowBase = glm::make_mat4(shadowMat) * mBase;
+        glUniformMatrix4fv(mLoc, 1, GL_FALSE, glm::value_ptr(mShadowBase));
+        renderMesh(assets.base_mesh, false);
+
+        glm::mat4 mRotate = glm::translate(mBase, glm::vec3(0.0f, assets.rotate_y_offset, 0.0f));
+        mRotate = glm::rotate(mRotate, glm::radians(tower.current_yaw), glm::vec3(0.0f, 1.0f, 0.0f));
+        glm::mat4 mShadowRotate = glm::make_mat4(shadowMat) * mRotate;
+        glUniformMatrix4fv(mLoc, 1, GL_FALSE, glm::value_ptr(mShadowRotate));
+        renderMesh(assets.rotate_mesh, false);
+
+        glm::mat4 mGun = glm::translate(mRotate, glm::vec3(0.0f, assets.gun_y_offset, 0.0f));
+        mGun = glm::rotate(mGun, glm::radians(-tower.current_pitch), glm::vec3(1.0f, 0.0f, 0.0f));
+        glm::mat4 mShadowGun = glm::make_mat4(shadowMat) * mGun;
+        glUniformMatrix4fv(mLoc, 1, GL_FALSE, glm::value_ptr(mShadowGun));
+        renderMesh(assets.gun_mesh, false);
+    }
+
+    for (const auto& troop : troops) {
+        glm::mat4 M = glm::mat4(1.0f);
+        M = glm::translate(M, glm::vec3(troop.x, troop.altitude, troop.z));
+        M = glm::rotate(M, glm::radians(troop.rotation_yaw), glm::vec3(0, 1, 0));
+        M = glm::scale(M, glm::vec3(0.3f, 0.3f, 0.3f));
+        glm::mat4 mShadow = glm::make_mat4(shadowMat) * M;
+        glUniformMatrix4fv(mLoc, 1, GL_FALSE, glm::value_ptr(mShadow));
+
+        renderMesh(troop_assets[(int)troop.variant].base_mesh, false);
+    }
+
+    glDisable(GL_STENCIL_TEST);
+    glDepthMask(GL_TRUE);
+    glEnable(GL_DEPTH_TEST);
+    glDisable(GL_BLEND);
+    glEnable(GL_LIGHTING);
+
     // RENDER TROOPS
     for (const auto& troop : troops) {
         const auto& assets = troop_assets[(int)troop.variant];
@@ -535,6 +624,7 @@ void Game::render(glm::mat4 P, glm::mat4 V) {
 
         bindTextures(shader_id, assets.base_tex);
         renderMesh(assets.base_mesh, true);
+        unbindTextures(shader_id);
 
         if (troop.variant == TroopType::TANK) {
             float wheelRollAngle = time * troop.speed * 120.0f;
@@ -569,7 +659,7 @@ void Game::render(glm::mat4 P, glm::mat4 V) {
     for (const auto& tower : active_defenses) {
         const auto& assets = tower_assets[(int)tower.tower_variant];
 
-        // --- BASE ---
+        // BASE
         glm::mat4 mBase = glm::mat4(1.0f);
         mBase = glm::translate(mBase, glm::vec3(tower.x, assets.base_y_offset, tower.z));
         mBase = glm::scale(mBase, glm::vec3(0.5f, 0.5f, 0.5f));
@@ -581,7 +671,7 @@ void Game::render(glm::mat4 P, glm::mat4 V) {
         bindTextures(shader_id, assets.base_tex);
         renderMesh(assets.base_mesh, true);
 
-        // --- ROTATE ---
+        // ROTATE
         glm::mat4 mRotate = glm::translate(mBase, glm::vec3(0.0f, assets.rotate_y_offset, 0.0f));
         mRotate = glm::rotate(mRotate, glm::radians(tower.current_yaw), glm::vec3(0.0f, 1.0f, 0.0f));
         glUniformMatrix4fv(mLoc, 1, GL_FALSE, glm::value_ptr(mRotate));
@@ -592,7 +682,7 @@ void Game::render(glm::mat4 P, glm::mat4 V) {
         bindTextures(shader_id, assets.rotate_tex);
         renderMesh(assets.rotate_mesh, true);
 
-        // --- GUN ---
+        // GUN
         glm::mat4 mGun = glm::translate(mRotate, glm::vec3(0.0f, assets.gun_y_offset, 0.0f));
         mGun = glm::rotate(mGun, glm::radians(-tower.current_pitch), glm::vec3(1.0f, 0.0f, 0.0f));
         glUniformMatrix4fv(mLoc, 1, GL_FALSE, glm::value_ptr(mGun));
@@ -602,68 +692,7 @@ void Game::render(glm::mat4 P, glm::mat4 V) {
 
         bindTextures(shader_id, assets.gun_tex);
         renderMesh(assets.gun_mesh, true);
-
-        // --- SHADOW PASS ---
-        unbindTextures(shader_id);
-        glDisable(GL_LIGHTING);
-        glEnable(GL_BLEND);
-        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-        glEnable(GL_POLYGON_OFFSET_FILL);
-        glPolygonOffset(1.0f, 1.0f);
-        glColor4f(0.05f, 0.12f, 0.05f, 0.45f);
-
-        // Pass an identity/dummy 3x3 normal matrix for shadows to prevent CPU/GPU NaN errors
-        glm::mat3 dummyNormal = glm::mat3(1.0f);
-        glUniformMatrix3fv(glGetUniformLocation(shader_id, "normalMatrix"), 1, GL_FALSE, glm::value_ptr(dummyNormal));
-
-        glm::mat4 mShadowBase = glm::make_mat4(shadowMat) * mBase;
-        glUniformMatrix4fv(mLoc, 1, GL_FALSE, glm::value_ptr(mShadowBase));
-        renderMesh(assets.base_mesh, false);
-
-        glm::mat4 mShadowRotate = glm::make_mat4(shadowMat) * mRotate;
-        glUniformMatrix4fv(mLoc, 1, GL_FALSE, glm::value_ptr(mShadowRotate));
-        renderMesh(assets.rotate_mesh, false);
-
-        glm::mat4 mShadowGun = glm::make_mat4(shadowMat) * mGun;
-        glUniformMatrix4fv(mLoc, 1, GL_FALSE, glm::value_ptr(mShadowGun));
-        renderMesh(assets.gun_mesh, false);
-
-        glDisable(GL_POLYGON_OFFSET_FILL);
-        glDisable(GL_BLEND);
-        glEnable(GL_LIGHTING);
     }
-
-    glUseProgram(0);
-
-    // BACKGROUND/SCENE SHADOW PASS
-    glDisable(GL_LIGHTING);
-    glEnable(GL_BLEND);
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-    glEnable(GL_POLYGON_OFFSET_FILL);
-    glPolygonOffset(1.0f, 1.0f);
-    glColor4f(0.05f, 0.12f, 0.05f, 0.45f);
-
-    glUseProgram(shader_id);
-
-    unbindTextures(shader_id);
-
-    glm::mat3 dummyNormal = glm::mat3(1.0f);
-    glUniformMatrix3fv(glGetUniformLocation(shader_id, "normalMatrix"), 1, GL_FALSE, glm::value_ptr(dummyNormal));
-
-    for (const auto& troop : troops) {
-        glm::mat4 M = glm::mat4(1.0f);
-        M = glm::translate(M, glm::vec3(troop.x, troop.altitude, troop.z));
-        M = glm::rotate(M, glm::radians(troop.rotation_yaw), glm::vec3(0, 1, 0));
-        M = glm::scale(M, glm::vec3(0.3f, 0.3f, 0.3f));
-        glm::mat4 mShadow = glm::make_mat4(shadowMat) * M;
-        glUniformMatrix4fv(mLoc, 1, GL_FALSE, glm::value_ptr(mShadow));
-
-        renderMesh(troop_assets[(int)troop.variant].base_mesh, false);
-    }
-
-    glDisable(GL_POLYGON_OFFSET_FILL);
-    glDisable(GL_BLEND);
-    glEnable(GL_LIGHTING);
 
     // BULLETS PASS
     for (const auto& b : active_bullets) {
