@@ -37,8 +37,13 @@ GLuint Game::readTexture(const char* filename) {
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0,
         GL_RGBA, GL_UNSIGNED_BYTE, image_data);
 
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glGenerateMipmap(GL_TEXTURE_2D);
+
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
 
     stbi_image_free(image_data);
 
@@ -262,6 +267,15 @@ void Game::init() {
 
     projectile_assets.bullet_tex = bulletTex;
     projectile_assets.rocket_tex = bulletTex;
+    
+    groundTex.baseColor = readTexture("Assets/Ground/textures/terrain_diff.jpg");
+    groundTex.normalMap = readTexture("Assets/Ground/textures/terrain_normal.png");
+    groundTex.roughness = readTexture("Assets/Ground/textures/terrain_rough.png");
+    groundTex.metallic = readTexture("Assets/Ground/textures/terrain_spec.png");
+
+    pathTex.baseColor = readTexture("Assets/Ground/textures/path_diff.jpg");
+    pathTex.normalMap = readTexture("Assets/Ground/textures/path_normal.png");
+    pathTex.roughness = readTexture("Assets/Ground/textures/path_rough.png");
 }
 
 void Game::startNextWave() {
@@ -539,13 +553,47 @@ void Game::render(glm::mat4 P, glm::mat4 V) {
 
     glUniformMatrix4fv(mLoc, 1, GL_FALSE, glm::value_ptr(identityModel));
 
-    glBegin(GL_QUADS);
-    glColor3f(0.2f, 0.5f, 0.2f); glNormal3f(0, 1, 0);
-    glVertex3f(-50, -0.01f, -50); glVertex3f(50, -0.01f, -50);
-    glVertex3f(50, -0.01f, 50); glVertex3f(-50, -0.01f, 50);
-    glEnd();
+    const float TILE = 10.0f;
+    const float Y = -0.01f;
 
+    glm::mat3 groundNormal = glm::mat3(1.0f);
+    glUniformMatrix3fv(glGetUniformLocation(shader_id, "normalMatrix"),
+        1, GL_FALSE, glm::value_ptr(groundNormal));
+
+    // Podłoga
+    glm::mat4 mGround = glm::mat4(1.0f);
+    glUniformMatrix4fv(mLoc, 1, GL_FALSE, glm::value_ptr(mGround));
+    glm::mat3 nGround = glm::mat3(1.0f);
+    glUniformMatrix3fv(glGetUniformLocation(shader_id, "normalMatrix"),
+        1, GL_FALSE, glm::value_ptr(nGround));
+
+    glm::vec3 eyeT = glm::normalize(glm::vec3(V * glm::vec4(1, 0, 0, 0)));
+    glm::vec3 eyeB = glm::normalize(glm::vec3(V * glm::vec4(0, 0, 1, 0)));
+    glUniform3f(glGetUniformLocation(shader_id, "fixedTangent"), eyeT.x, eyeT.y, eyeT.z);
+    glUniform3f(glGetUniformLocation(shader_id, "fixedBitangent"), eyeB.x, eyeB.y, eyeB.z);
+    glUniform1f(glGetUniformLocation(shader_id, "useFixedTBN"), 1.0f);
+    bindTextures(shader_id, groundTex);
+
+    glColor3f(1.0f, 1.0f, 1.0f);
+    glNormal3f(0, 1, 0);
+    glBegin(GL_QUADS);
+    const float T = 12.0f;
+    glTexCoord2f(0, 0); glVertex3f(-50, -0.01f, -50);
+    glTexCoord2f(T, 0); glVertex3f(50, -0.01f, -50);
+    glTexCoord2f(T, T); glVertex3f(50, -0.01f, 50);
+    glTexCoord2f(0, T); glVertex3f(-50, -0.01f, 50);
+    glEnd();
+    unbindTextures(shader_id);
+    glUniform1f(glGetUniformLocation(shader_id, "useFixedTBN"), 0.0f);
+
+	// Ścieżka
+    glUniformMatrix4fv(mLoc, 1, GL_FALSE, glm::value_ptr(mGround));
+    glUniformMatrix3fv(glGetUniformLocation(shader_id, "normalMatrix"),
+        1, GL_FALSE, glm::value_ptr(nGround));
+    bindTextures(shader_id, pathTex);
+    glColor3f(1.0f, 1.0f, 1.0f);
     game_pathway.Draw();
+    unbindTextures(shader_id);
 
     float time = (float)glfwGetTime();
 

@@ -142,6 +142,9 @@ public:
     TroopGeometry troop_assets[3];
 
     ProjectileGeometry projectile_assets;
+    
+    TextureBundle groundTex;
+    TextureBundle pathTex;
 
     void init();
     void update(float delta_step);

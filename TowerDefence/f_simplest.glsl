@@ -30,6 +30,10 @@ uniform float hasRoughness;
 uniform float hasAO;
 uniform float hasEmissive;
 
+uniform float useFixedTBN;
+uniform vec3  fixedTangent;
+uniform vec3  fixedBitangent;
+
 
 const float PI = 3.14159265359;
 
@@ -115,8 +119,25 @@ void main() {
     float ao = (hasAO > 0.5) ? texture(texAO, vTexCoord).r : 1.0;
 
     vec3 N = normalize(vNormal);
-    if (hasNormal > 0.5)
-        N = applyNormalMap(N, vPos.xyz, vTexCoord);
+    if (hasNormal > 0.5) {
+        vec3 nmSample = texture(texNormal, vTexCoord).rgb * 2.0 - 1.0;
+        vec3 T, B;
+        if (useFixedTBN > 0.5) {
+            T = normalize(fixedTangent);
+            B = normalize(fixedBitangent);
+        } else {
+            vec3 dp1 = dFdx(vPos.xyz); vec3 dp2 = dFdy(vPos.xyz);
+            vec2 duv1 = dFdx(vTexCoord); vec2 duv2 = dFdy(vTexCoord);
+            float det = duv1.x * duv2.y - duv1.y * duv2.x;
+            if (abs(det) < 0.00001) { /* zostaw N */ }
+            else {
+                T = normalize( duv2.y * dp1 - duv1.y * dp2);
+                B = normalize(-duv2.x * dp1 + duv1.x * dp2);
+            }
+        }
+        mat3 TBN = mat3(T, B, N);
+        N = normalize(TBN * nmSample);
+    }
 
     vec3 V = normalize(vViewDir);
 
