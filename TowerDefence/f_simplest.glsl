@@ -21,6 +21,7 @@ uniform sampler2D texMetallic;
 uniform sampler2D texRoughness;
 uniform sampler2D texAO;
 uniform sampler2D texEmissive;
+uniform float texBlendScale;
 
 // Presence flags
 uniform float hasBaseColor;

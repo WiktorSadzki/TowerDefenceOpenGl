@@ -478,7 +478,18 @@ static bool isOnRoad(float wx, float wz,
         t = fmaxf(0.f, fminf(1.f, t));
         float cx = ax + t * abx, cz = az + t * abz;
         float d = sqrtf(powf(wx - cx, 2) + powf(wz - cz, 2));
-        if (d < halfWidth) return true;
+        if (d < halfWidth+2.13f) return true;
+    }
+    return false;
+}
+
+static bool isOnTower(float wx, float wz,
+    const std::vector<TowerInstance>& towers) {
+    for (const auto& t : towers) {
+        float dx = t.x - wx;
+        float dz = t.z - wz;
+        if ((dx * dx + dz * dz) < 18.9f)
+            return true;
     }
     return false;
 }
@@ -578,10 +589,10 @@ void Game::render(glm::mat4 P, glm::mat4 V) {
     glNormal3f(0, 1, 0);
     glBegin(GL_QUADS);
     const float T = 12.0f;
-    glTexCoord2f(0, 0); glVertex3f(-50, -0.01f, -50);
-    glTexCoord2f(T, 0); glVertex3f(50, -0.01f, -50);
-    glTexCoord2f(T, T); glVertex3f(50, -0.01f, 50);
-    glTexCoord2f(0, T); glVertex3f(-50, -0.01f, 50);
+    glTexCoord2f(0, 0); glVertex3f(-200, -0.01f, -200);
+    glTexCoord2f(T, 0); glVertex3f(200, -0.01f, -200);
+    glTexCoord2f(T, T); glVertex3f(200, -0.01f, 200);
+    glTexCoord2f(0, T); glVertex3f(-200, -0.01f, 200);
     glEnd();
     unbindTextures(shader_id);
     glUniform1f(glGetUniformLocation(shader_id, "useFixedTBN"), 0.0f);
@@ -592,7 +603,11 @@ void Game::render(glm::mat4 P, glm::mat4 V) {
         1, GL_FALSE, glm::value_ptr(nGround));
     bindTextures(shader_id, pathTex);
     glColor3f(1.0f, 1.0f, 1.0f);
+    glUniform1f(glGetUniformLocation(shader_id, "texBlendScale"), 4.3f);
+    bindTextures(shader_id, pathTex);
     game_pathway.Draw();
+    unbindTextures(shader_id);
+    glUniform1f(glGetUniformLocation(shader_id, "texBlendScale"), 0.0f);
     unbindTextures(shader_id);
 
     float time = (float)glfwGetTime();
@@ -788,6 +803,7 @@ void Game::render(glm::mat4 P, glm::mat4 V) {
         TowerInstance preview = getTowerDefaults(ghostType);
         float ghostRange = preview.tower_range;
         bool onRoad = isOnRoad(ghost_wx, ghost_wz, pathWaypoints, game_pathway.roadWidth);
+        bool onTower = isOnTower(ghost_wx, ghost_wz, active_defenses);
 
         const auto& assets = tower_assets[(int)ghostType];
         glDisable(GL_LIGHTING);
@@ -811,7 +827,7 @@ void Game::render(glm::mat4 P, glm::mat4 V) {
         mGhost = glm::scale(mGhost, glm::vec3(0.5f, 0.5f, 0.5f));
         glUniformMatrix4fv(mLoc, 1, GL_FALSE, glm::value_ptr(mGhost));
 
-        if (onRoad) glColor4f(1.0f, 0.3f, 0.3f, 0.5f);
+        if (onRoad || onTower) glColor4f(1.0f, 0.3f, 0.3f, 0.5f);
         else glColor4f(1.0f, 1.0f, 1.0f, 0.5f);
 
         renderMesh(assets.base_mesh, false);
@@ -928,17 +944,8 @@ void Game::tryPlaceTower(int mouse_x, int mouse_y, Camera& world_camera) {
 
     TowerInstance turret = getTowerDefaults(selectedType);
     if (gold < turret.cost) return;
-    if (isOnRoad(ghost_wx, ghost_wz, pathWaypoints, game_pathway.roadWidth)) return;
-
-    for (const auto& t : active_defenses) {
-        float dx = t.x - ghost_wx;
-        float dz = t.z - ghost_wz;
-
-        if ((dx * dx + dz * dz) < 4.0f) {
-            std::cout << "Placement blocked: Too close to another tower." << std::endl;
-            return;
-        }
-    }
+    if (isOnRoad(ghost_wx, ghost_wz, pathWaypoints, game_pathway.roadWidth) ||
+        isOnTower(ghost_wx, ghost_wz, active_defenses)) return;
 
     turret.x = ghost_wx;
     turret.z = ghost_wz;

@@ -21,7 +21,7 @@ static bool   g_mouse_right_down = false;
 static bool   g_mouse_has_moved = false;
 static float  g_previous_time = 0.0f;
 const float   MAP_BOUNDARY = 45.0f;
-const float   CAMERA_MOVE_SPEED = 30.0f;
+const float   CAMERA_MOVE_SPEED = 60.0f;
 
 void framebuffer_size_callback(GLFWwindow* window, int width, int height) {
     if (height == 0) height = 1;
@@ -189,6 +189,23 @@ int main(int argc, char** argv) {
         if (cursor_x > win_w - screen_margin) { g_camera.cx += dir_rgt_x * CAMERA_MOVE_SPEED * frame_delta; g_camera.cz += dir_rgt_z * CAMERA_MOVE_SPEED * frame_delta; }
         if (cursor_y < screen_margin) { g_camera.cx += dir_fwd_x * CAMERA_MOVE_SPEED * frame_delta; g_camera.cz += dir_fwd_z * CAMERA_MOVE_SPEED * frame_delta; }
         if (cursor_y > win_h - screen_margin) { g_camera.cx -= dir_fwd_x * CAMERA_MOVE_SPEED * frame_delta; g_camera.cz -= dir_fwd_z * CAMERA_MOVE_SPEED * frame_delta; }
+
+        if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS) {
+            g_camera.cx -= dir_rgt_x * CAMERA_MOVE_SPEED * frame_delta;
+            g_camera.cz -= dir_rgt_z * CAMERA_MOVE_SPEED * frame_delta;
+        }
+        if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS) {
+            g_camera.cx += dir_rgt_x * CAMERA_MOVE_SPEED * frame_delta;
+            g_camera.cz += dir_rgt_z * CAMERA_MOVE_SPEED * frame_delta;
+        }
+        if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS) {
+            g_camera.cx += dir_fwd_x * CAMERA_MOVE_SPEED * frame_delta;
+            g_camera.cz += dir_fwd_z * CAMERA_MOVE_SPEED * frame_delta;
+        }
+        if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS) {
+            g_camera.cx -= dir_fwd_x * CAMERA_MOVE_SPEED * frame_delta;
+            g_camera.cz -= dir_fwd_z * CAMERA_MOVE_SPEED * frame_delta;
+        }
 
         if (g_camera.cx < -MAP_BOUNDARY) g_camera.cx = -MAP_BOUNDARY;
         if (g_camera.cx > MAP_BOUNDARY) g_camera.cx = MAP_BOUNDARY;

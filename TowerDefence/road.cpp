@@ -73,16 +73,20 @@ void Road::GenerateMesh() {
         glm::vec3 right = glm::normalize(glm::cross(dir, glm::vec3(0, 1, 0)));
 
         Vertex leftVert, rightVert;
-        leftVert.Position = current - right * roadWidth;
-        leftVert.TexCoords = glm::vec2(0.0f, tex_v_coord);
 
+        leftVert.Position = current - right * roadWidth;
         rightVert.Position = current + right * roadWidth;
-        rightVert.TexCoords = glm::vec2(1.0f, tex_v_coord);
+
+        leftVert.TexCoords = glm::vec2(tex_v_coord, 0.0f);
+        rightVert.TexCoords = glm::vec2(tex_v_coord, 1.0f);
 
         vertices.push_back(leftVert);
         vertices.push_back(rightVert);
 
-        tex_v_coord += 1.0f;
+        if (i > 0) {
+            float segLen = glm::length(splinePoints[i] - splinePoints[i - 1]);
+            tex_v_coord += segLen * 0.15f;
+        }
     }
 
     for (size_t i = 0; i < (vertices.size() / 2) - 1; i++) {
@@ -98,12 +102,11 @@ void Road::GenerateMesh() {
 }
 
 void Road::Draw() {
-    glDisable(GL_LIGHTING);
-    glColor3f(0.3f, 0.3f, 0.3f);
     glBegin(GL_TRIANGLES);
     for (size_t iter = 0; iter < indices.size(); iter++) {
         unsigned int current_idx = indices[iter];
         Vertex current_vert = vertices[current_idx];
+        glNormal3f(0, 1, 0);
         glTexCoord2f(current_vert.TexCoords.x, current_vert.TexCoords.y);
         glVertex3f(current_vert.Position.x, current_vert.Position.y, current_vert.Position.z);
     }
