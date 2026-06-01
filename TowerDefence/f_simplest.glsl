@@ -1,6 +1,6 @@
-// Physically Based Rendering (PBR) model.
 #version 330 compatibility
 
+// Physically Based Rendering (PBR) model.
 in vec4 vColor;
 in vec3 vNormal;
 in vec4 vPos;
@@ -175,7 +175,7 @@ void main() {
     // Bullet / point light
     if (bulletActive > 0.5) {
         // Calculate vector from surface point to bullet light position
-        vec3  lightVec = bulletPos - vPos.xyz; /
+        vec3  lightVec = bulletPos - vPos.xyz;
         float dist     = length(lightVec);
         // Avoid singularity and excessive brightness at very close distances
         if (dist > 0.01) {
