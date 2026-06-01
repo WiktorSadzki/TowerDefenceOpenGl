@@ -45,5 +45,11 @@
   <ItemGroup>
     <None Include="f_simplest.glsl" />
     <None Include="v_simplest.glsl" />
+    <None Include="v_hud.glsl">
+      <Filter>Pliki źródłowe</Filter>
+    </None>
+    <None Include="f_hud.glsl">
+      <Filter>Pliki źródłowe</Filter>
+    </None>
   </ItemGroup>
 </Project>

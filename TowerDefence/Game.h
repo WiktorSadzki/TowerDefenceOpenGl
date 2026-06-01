@@ -5,24 +5,25 @@
 #include "Camera.h"
 #include "Road.h"
 
-enum TileType { TILE_GRASS, TILE_PATH, TILE_TREE, TILE_MOUNTAIN, TILE_TOWER
-};
+// Enumeration for different types of towers available in the game, which can be used to determine the tower's behavior, appearance, and stats. Each tower type has its own unique properties such as fire rate, damage, range, and cost, which are defined in the getTowerDefaults() method when placing a new tower instance.
 enum class TowerType { MACHINE_GUN = 0, ROCKETS = 1, SNIPER = 2 };
 enum TroopType { CAR, TANK, HELICOPTER };
-enum GameState { START_MENU, PLAYING, GAME_OVER };
 
+// 2D point structure for map logic
 struct P {
     float x = 0.0f;
     float z = 0.0f;
 };
 
+// Struct for passing verted data to the GPU
 struct VertexData {
-    float x, y, z;
-    float nx, ny, nz;
-    float r, g, b;
-    float u, v;
+    float x, y, z; // Position
+    float nx, ny, nz; // Normals
+    float r, g, b; // Vertex colors
+    float u, v; // UVs textures
 };
 
+// Group texture for the same model
 struct TextureBundle {
     GLuint baseColor = 0;
     GLuint normalMap = 0;
@@ -32,7 +33,14 @@ struct TextureBundle {
     GLuint ao = 0;
 };
 
+// Stores GPU handles
+struct MeshBuffer {
+    GLuint vao = 0;
+    GLuint vbo = 0;
+    int    count = 0;
+};
 
+// Connects meshes to their textures + offsets
 struct TowerGeometry {
     std::vector<VertexData> base_mesh;
     std::vector<VertexData> rotate_mesh;
@@ -45,24 +53,30 @@ struct TowerGeometry {
     TextureBundle rotate_tex;
     TextureBundle gun_tex;
 
+    MeshBuffer base_buf;
+    MeshBuffer rotate_buf;
+    MeshBuffer gun_buf;
 };
 
+// Tracks individual tower instance
 struct TowerInstance {
     float x = 0.0f;
     float z = 0.0f;
+    // orientation of the turrets
     float current_yaw = 0.0f;
     float current_pitch = 0.0f;
     TowerType tower_variant = TowerType::MACHINE_GUN;
-    float tower_rotate_speed =15.0f;
+    float tower_rotate_speed = 15.0f;
     float tower_fire_rate = 0.15f;
     float tower_dmg = 20.0f;
-    float tower_range =9.0f;
+    float tower_range = 9.0f;
     int cost = 20;
     float current_cooldown = 0.0f;
 
-    int nextBarrel = 0;
+    int nextBarrel = 0; // Cycling between next barrel - used in rockets and machine gun logic
 };
 
+// Tracks individual enemy
 struct Troop {
     float x = 0.0f, z = 0.0f, altitude = 0.5f, rotation_yaw = 0.0f;
     float health = 100.0f, speed = 8.0f;
@@ -70,15 +84,21 @@ struct Troop {
     TroopType variant = CAR;
 };
 
+// Connects troop meshes with textures 
 struct TroopGeometry {
     std::vector<VertexData> base_mesh;
     std::vector<VertexData> wheel_mesh;
     std::vector<VertexData> prop_mesh;
 
     TextureBundle base_tex;
+
+    // GPU buffer handles
+    MeshBuffer base_buf;
+    MeshBuffer wheel_buf;
+    MeshBuffer prop_buf;
 };
 
-struct Projectile{
+struct Projectile {
     float x = 0.0f, y = 0.0f, z = 0.0f;
     float vx = 0.0f, vy = 0.0f, vz = 0.0f;
     float life_span = 0.0f;
@@ -86,16 +106,23 @@ struct Projectile{
     bool isRocket = false;
 };
 
+// Connects texutures and meshes of rockets and bullets
 struct ProjectileGeometry {
     std::vector<VertexData> bullet_mesh;
     std::vector<VertexData> rocket_mesh;
 
     TextureBundle bullet_tex;
     TextureBundle rocket_tex;
+
+    // GPU buffer
+    MeshBuffer bullet_buf;
+    MeshBuffer rocket_buf;
 };
 
+// Game logic
 class Game {
 public:
+    // screen size
     float hud_win_w;
     float hud_win_h;
 
@@ -114,7 +141,6 @@ public:
     TowerType ghostType = TowerType::MACHINE_GUN;
 
     std::vector<Projectile> active_bullets;
-    float fire_cooldowns[1000] = { 0 };
 
     void spawnProjectile(float sx, float sy, float sz, float tx, float ty, float tz, float damage_val, bool isRocket = false);
 
@@ -127,10 +153,6 @@ public:
 
     float waveEndMessageTimer = 0.0f;
 
-    static const int grid_dim = 24;
-    TileType map[grid_dim][grid_dim];
-    float height_map[grid_dim][grid_dim];
-
     std::vector<Troop> troops;
     std::vector<P> pathWaypoints;
     Road game_pathway;
@@ -142,32 +164,37 @@ public:
     TroopGeometry troop_assets[3];
 
     ProjectileGeometry projectile_assets;
-    
+
     TextureBundle groundTex;
     TextureBundle pathTex;
+
+    MeshBuffer groundBuf;
+    MeshBuffer roadBuf;
+    MeshBuffer circleBuf;
 
     void init();
     void update(float delta_step);
     void render(glm::mat4 P, glm::mat4 V);
     void spawnTroop();
 
-    void loadMapFromImage(const std::string& texture_path);
-    void tileCenter(int col_idx, int row_idx, float& world_x_pos, float& world_z_pos);
-
     void tryPlaceTower(int mouse_x, int mouse_y, Camera& world_camera);
     void loadModels(std::string root_dir, std::string file_name, std::vector<VertexData>& vertex_buffer);
-    void loadTroopWave(std::string resource_path);
-    void selectTowerType(int list_index);
-    void toggleBuildMode(int typeIndex);
 
-    void applyTextures(GLuint shader_id, const TextureBundle& bundle);
+    void toggleBuildMode(int typeIndex);
+    void selectTowerType(int i);
 
     TowerInstance getTowerDefaults(TowerType type);
 
     GLuint shader_id = 0;
+    GLuint hud_shader = 0;
     GLuint loadShader(const char* vertexPath, const char* fragmentPath);
-    
+
     static GLuint readTexture(const char* filename);
+
 private:
+    MeshBuffer uploadMesh(const std::vector<VertexData>& verts);
+    MeshBuffer uploadLineLoop(const std::vector<float>& xyzs);
+
+    void drawMesh(const MeshBuffer& buf);
     void renderHUD();
 };

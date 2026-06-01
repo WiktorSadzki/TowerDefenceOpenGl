@@ -153,7 +153,9 @@
     <ClInclude Include="Road.h" />
   </ItemGroup>
   <ItemGroup>
+    <None Include="f_hud.glsl" />
     <None Include="f_simplest.glsl" />
+    <None Include="v_hud.glsl" />
     <None Include="v_simplest.glsl" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
