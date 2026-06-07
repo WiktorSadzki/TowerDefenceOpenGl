@@ -47,6 +47,11 @@ GLuint Game::readTexture(const char* filename) {
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
 
+    if (!texture_pixels) {
+        std::cout << "Texture load error: " << filename << std::endl;
+        return 0;
+    }
+
     stbi_image_free(texture_pixels);
     return tex;
 }
@@ -216,18 +221,18 @@ TowerInstance Game::getTowerDefaults(TowerType type) {
     // Base stats for machine gun tower, which is the default type
     t.cost = 20;
     t.tower_rotate_speed = 15.0f;
-    t.tower_fire_rate = 0.15f;
-    t.tower_dmg = 20.0f;
+    t.tower_fire_rate =0.6f;
+    t.tower_dmg = 4.0f;
     t.tower_range = 10.0f;
 
     // Adjust stats for rockets and sniper towers
     if (type == TowerType::ROCKETS) {
         t.cost = 30; t.tower_rotate_speed = 8.0f;
-        t.tower_fire_rate = 0.08f; t.tower_dmg = 50.0f; t.tower_range = 8.0f;
+        t.tower_fire_rate = 1.0f; t.tower_dmg = 10.0f; t.tower_range = 8.0f;
     }
     else if (type == TowerType::SNIPER) {
         t.cost = 25; t.tower_rotate_speed = 25.0f;
-        t.tower_fire_rate = 0.12f; t.tower_dmg = 35.0f; t.tower_range = 12.0f;
+        t.tower_fire_rate = 1.3f; t.tower_dmg = 15.0f; t.tower_range = 12.0f;
     }
     return t;
 }
@@ -438,7 +443,21 @@ void Game::startNextWave() {
 void Game::update(float delta_step) {
     if (gameOver) return;
 
-    // Spawning enemies in waves with a timer, and checking for wave end conditions
+    // Process particle lifetimes and movement
+    for (auto it = active_thrusters.begin(); it != active_thrusters.end(); ) {
+        it->x_pos += it->vel_x * delta_step;
+        it->y_pos += it->vel_y * delta_step;
+        it->z_pos += it->vel_z * delta_step;
+        it->current_life -= delta_step;
+        
+        if (it->current_life <= 0.0f) {
+            it = active_thrusters.erase(it);
+        } else {
+            ++it;
+        }
+    }
+
+    // Spawning enemies in waves with a timer
     if (waveActive && troopsRemainingInWave > 0) {
         spawnTimer += delta_step;
         if (spawnTimer > spawn_interval) {
@@ -447,7 +466,6 @@ void Game::update(float delta_step) {
             spawnTimer = 0.0f;
         }
     }
-    // End wave if all troops have been spawned and defeated, with a timer for the "Wave Complete" message
     else if (troopsRemainingInWave <= 0 && troops.empty()) {
         if (waveActive) waveEndMessageTimer = 3.0f;
         waveActive = false;
@@ -455,30 +473,39 @@ void Game::update(float delta_step) {
 
     if (waveEndMessageTimer > 0.0f) waveEndMessageTimer -= delta_step;
 
-    // Troop movement along the path, with rotation towards the next waypoint and removal if they reach the end
+    // Troop movement along the path
     for (auto it = troops.begin(); it != troops.end(); ) {
-        // Target coordinates for the current waypoint
         float tx = pathWaypoints[it->currentWaypoint].x;
         float tz = pathWaypoints[it->currentWaypoint].z;
 
-        // Calculate distance to next waypoint and move towards it, rotating to face the direction of movement
         float dx = tx - it->x;
         float dz = tz - it->z;
         float dist = sqrtf(dx * dx + dz * dz);
         float moveDist = it->speed * delta_step;
 
-        // Calculate rotation using arc tangent
-        if (dist > 0.001f) {
-            float targetA = atan2f(dx, dz) * 180.0f / 3.14159f; // Convert radians to degrees
-            float diff = targetA - it->rotation_yaw;
+        if (it != troops.begin() && it->variant != HELICOPTER) {
+            auto ahead_troop = it - 1;
+            float gap_x = ahead_troop->x - it->x;
+            float gap_z = ahead_troop->z - it->z;
+            float dist_to_ahead = sqrtf(gap_x * gap_x + gap_z * gap_z);
 
-            // Normalize the angle difference to stay within -180 to 180 degrees
-            while (diff < -180) diff += 360;
-            while (diff > 180) diff -= 360;
-            it->rotation_yaw += diff * delta_step * 10.0f; // delta step - smooth rotation
+            float minimum_gap = 2.5f;
+
+            if (dist_to_ahead < minimum_gap) {
+                moveDist = 0.0f;
+            }
         }
 
-        // Move towards the waypoint, and if close enough, snap to it and advance to the next waypoint
+        // Calculate rotation using arc tangent
+        if (dist > 0.001f) {
+            float targetA = atan2f(dx, dz) * 180.0f / 3.14159f; 
+            float diff = targetA - it->rotation_yaw;
+
+            while (diff < -180) diff += 360;
+            while (diff > 180) diff -= 360;
+            it->rotation_yaw += diff * delta_step * 10.0f; 
+        }
+
         if (dist <= moveDist) {
             it->x = tx; it->z = tz;
             it->currentWaypoint++;
@@ -490,7 +517,7 @@ void Game::update(float delta_step) {
         
         if (it->variant == CAR) {
             for (auto& pt : it->fireTrail) {
-                pt.alpha -= delta_step * 2.5f; // Dissolves completely over ~0.4 seconds
+                pt.alpha -= delta_step * 2.5f; 
             }
 
             it->fireTrail.erase(
@@ -503,23 +530,26 @@ void Game::update(float delta_step) {
             carM = glm::translate(carM, glm::vec3(it->x, it->altitude, it->z));
             carM = glm::rotate(carM, glm::radians(it->rotation_yaw), glm::vec3(0.0f, 1.0f, 0.0f));
 
-            // Transform the local tailpipe offset back out into world space coordinates
-            glm::vec3 currentExhaust = glm::vec3(carM * glm::vec4(0.0f, -0.2f, -1.2f, 1.0f));
+            glm::vec3 currentExhaust = glm::vec3(carM * glm::vec4(0.0f, 0.7f, -1.6f, 1.0f));
 
             TrailPoint newPt;
             newPt.position = currentExhaust;
-            newPt.alpha = 1.0f; // Reset back to max initial flame glow
+            newPt.alpha = 1.0f; 
             it->fireTrail.push_back(newPt);
+
+            // Spawn sci-fi thruster fire for the car
+            float backward_rad = glm::radians(it->rotation_yaw + 180.0f);
+            emitThrusterParticles(currentExhaust.x, currentExhaust.y, currentExhaust.z, sinf(backward_rad) * 4.0f, 0.0f, cosf(backward_rad) * 4.0f, 0.2f, 0.8f, 1.0f);
         }
 
-        // Subtract health if reached end of path, and remove troop from list
+        // Subtract health if reached end of path
         if (it->currentWaypoint >= (int)pathWaypoints.size()) {
             lives--; it = troops.erase(it);
         }
         else ++it;
     }
 
-    // Towers + fireing logic: find closest target in range, rotate towards it, and spawn projectiles if can
+    // Tower targeting and firing logic
     for (size_t i = 0; i < active_defenses.size(); i++) {
         auto& tower = active_defenses[i];
         float range = tower.tower_range;
@@ -527,7 +557,6 @@ void Game::update(float delta_step) {
         if (tower.current_cooldown > 0.0f)
             tower.current_cooldown -= delta_step;
 
-        // Find closest target in range
         Troop* target = nullptr;
         float  bestDist = range;
         for (auto& troop : troops) {
@@ -535,26 +564,21 @@ void Game::update(float delta_step) {
             if (d < bestDist) { bestDist = d; target = &troop; }
         }
 
-        // If target found
         if (target) {
             const auto& assets = tower_assets[(int)tower.tower_variant];
 
-            // Calculate distance and angles to target for aiming
-            float adx = target->x - tower.x; // Horizontal distance to target
-            float adz = target->z - tower.z; // Vertical distance to target
-            float dist2D = sqrtf(adx * adx + adz * adz); // 2D distance for yaw calculation
+            float adx = target->x - tower.x; 
+            float adz = target->z - tower.z; 
+            float dist2D = sqrtf(adx * adx + adz * adz); 
 
-            // Calculate the height difference to target for pitch calculation, using the gun pivot point
             float gunPivotY = assets.base_y_offset
                 + 0.5f * assets.rotate_y_offset
                 + 0.5f * assets.gun_y_offset;
             float ady = target->altitude - gunPivotY;
 
-            // Calculate target yaw and pitch angles in degrees
             float targetYaw = atan2f(adx, adz) * (180.0f / 3.14159f);
             float targetPitch = atan2f(ady, dist2D) * (180.0f / 3.14159f);
 
-            // Smoothly rotate tower towards target using a simple proportional controller
             float yDiff = targetYaw - tower.current_yaw;
             while (yDiff < -180) yDiff += 360;
             while (yDiff > 180) yDiff -= 360;
@@ -564,13 +588,10 @@ void Game::update(float delta_step) {
 
             float pitchDiff = targetPitch - tower.current_pitch;
 
-            // Fire if within range, roughly facing target, and cooldown ready. Spawn projectile with initial velocity towards target.
             if (tower.current_cooldown <= 0.0f && fabs(yDiff) < 15.0f && fabs(pitchDiff) < 10.0f) {
-                // Angle back to radians for forward vector calculation
                 float yawRad = tower.current_yaw * (3.14159f / 180.0f);
                 float pitchRad = tower.current_pitch * (3.14159f / 180.0f);
 
-                // Calculate forward, right, and up vectors for projectile spawn position based on tower rotation using spherical coordinates
                 float fwdX = sinf(yawRad) * cosf(pitchRad);
                 float fwdY = sinf(pitchRad);
                 float fwdZ = cosf(yawRad) * cosf(pitchRad);
@@ -580,13 +601,11 @@ void Game::update(float delta_step) {
                 float upY = cosf(pitchRad);
                 float upZ = -cosf(yawRad) * sinf(pitchRad);
 
-                // Muzzle offsets for different tower types
                 float muzzleFwd = 0.6f;
                 float muzzleRight = 0.0f;
                 float muzzleUp = 0.0f;
                 bool  isRocket = false;
 
-                // Machine gun alternates between two barrels, rockets alternate between 8 tubes, and sniper fires from center
                 if (tower.tower_variant == TowerType::MACHINE_GUN) {
                     const float gunRight[2] = { -0.32f, 0.32f };
                     muzzleFwd = 2.1f;
@@ -607,12 +626,10 @@ void Game::update(float delta_step) {
                     muzzleFwd = 1.0f;
                 }
 
-                // Calculate spawn position of projectile based on tower position, rotation, and muzzle offsets
                 float spawnX = tower.x + fwdX * muzzleFwd + rightX * muzzleRight + upX * muzzleUp;
                 float spawnY = gunPivotY + fwdY * muzzleFwd + upY * muzzleUp;
                 float spawnZ = tower.z + fwdZ * muzzleFwd + rightZ * muzzleRight + upZ * muzzleUp;
 
-                // Spawn projectile with initial velocity towards target, using tower damage and type for projectile properties
                 spawnProjectile(spawnX, spawnY, spawnZ,
                     target->x, target->altitude, target->z,
                     tower.tower_dmg, isRocket);
@@ -621,35 +638,43 @@ void Game::update(float delta_step) {
         }
     }
 
-    // Update projectiles: move based on velocity, check for collisions with troops, and remove if hit or expired
+    // Update projectiles and collisions
     for (auto it = active_bullets.begin(); it != active_bullets.end(); ) {
-        // Move projectile based on velocity and time step
         it->x += it->vx * delta_step;
         it->y += it->vy * delta_step;
         it->z += it->vz * delta_step;
         it->life_span -= delta_step;
 
-        // Check for collisions with troops by calculating distance to each troop and comparing to hitbox radius based on troop type. If hit, reduce troop health by projectile damage and mark projectile for removal.
+        // Spawn particles behind rocket projectiles
+        if (it->isRocket) {
+            float speed_magnitude = sqrtf(it->vx * it->vx + it->vy * it->vy + it->vz * it->vz);
+            if (speed_magnitude > 0.01f) {
+                float exhaust_offset_x = it->x - (it->vx / speed_magnitude) * 0.15f;
+                float exhaust_offset_y = it->y - (it->vy / speed_magnitude) * 0.15f;
+                float exhaust_offset_z = it->z - (it->vz / speed_magnitude) * 0.15f;
+                
+                emitThrusterParticles(exhaust_offset_x, exhaust_offset_y, exhaust_offset_z, -it->vx * 0.05f, -it->vy * 0.05f, -it->vz * 0.05f, 1.0f, 0.4f, 0.1f);
+            }
+        }
+
         bool destroyed = false;
         for (auto& enemy : troops) {
             float dist = sqrtf(powf(enemy.x - it->x, 2)
                 + powf(enemy.altitude - it->y, 2)
                 + powf(enemy.z - it->z, 2));
-            // Adjust hitbox radius
             float hitbox_radius = (enemy.variant == CAR) ? 0.8f
                 : (enemy.variant == TANK) ? 1.6f : 2.0f;
             if (dist < hitbox_radius) {
-                enemy.health -= it->damage; // Damage
+                enemy.health -= it->damage; 
                 destroyed = true;
                 break;
             }
         }
-        // Remove projectile if it hit a target or its lifespan expired
         if (destroyed || it->life_span <= 0) it = active_bullets.erase(it);
         else ++it;
     }
 
-    // Process defeated troops: if health <= 0, remove from list and add gold reward. If lives <= 0, set game over state
+    // Process defeated troops
     for (auto it = troops.begin(); it != troops.end(); ) {
         if (it->health <= 0) { gold += 15; it = troops.erase(it); }
         else ++it;
@@ -777,12 +802,10 @@ void Game::render(glm::mat4 P, glm::mat4 V) {
             float rad = glm::radians(troop.rotation_yaw);
             glm::vec3 forward(sinf(rad), 0.0f, cosf(rad));
 
-            float exhaustOffset = 3.0f;
-            glm::vec3 worldTrailPos(
-                troop.x - forward.x * exhaustOffset,
-                troop.altitude + 2.0f,
-                troop.z - forward.z * exhaustOffset
-            );
+            glm::vec3 worldTrailPos;
+            if(troop.variant == TroopType::CAR) {
+                worldTrailPos = glm::vec3(troop.x - forward.x * 1.6f, troop.altitude + 0.7f, troop.z - forward.z * 1.6f);
+            }
 
             glm::vec4 viewTrailPos = V * glm::vec4(worldTrailPos, 1.0f);
 
@@ -1061,8 +1084,70 @@ void Game::render(glm::mat4 P, glm::mat4 V) {
         glDisable(GL_BLEND);
     }
 
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE);
+    glDepthMask(GL_FALSE);
+
+    glUniform1f(glGetUniformLocation(shader_id, "renderMode"), 2.0f);
+    glUniform1f(glGetUniformLocation(shader_id, "isGhost"), 1.0f);
+    unbindTextures(shader_id);
+
+    // Replace your current active_thrusters loop with this:
+    for (const auto& particle : active_thrusters) {
+        float life_ratio = particle.current_life / particle.initial_life;
+
+        // Fire goes from bright yellow/orange to dark grey smoke
+        float r = particle.color_r;
+        float g = particle.color_g * life_ratio;
+        float b = particle.color_b * (life_ratio * life_ratio);
+
+        // Turn to smoke at the very end of the particle's life
+        if (life_ratio < 0.3f) {
+            r = 0.2f * life_ratio;
+            g = 0.2f * life_ratio;
+            b = 0.2f * life_ratio;
+        }
+
+        glUniform3f(glGetUniformLocation(shader_id, "ghostColor"), r, g, b);
+
+        // Fire expands as it dissipates instead of shrinking
+        float particle_scale = 0.08f + (0.35f * (1.0f - life_ratio));
+        glm::mat4 particle_matrix = glm::scale(glm::translate(identityModel, { particle.x_pos, particle.y_pos, particle.z_pos }), { particle_scale, particle_scale, particle_scale });
+
+        setModel(shader_id, V, particle_matrix);
+        drawMesh(projectile_assets.bullet_buf);
+    }
+
+    glUniform1f(glGetUniformLocation(shader_id, "renderMode"), 0.0f);
+    glDepthMask(GL_TRUE);
+    glDisable(GL_BLEND);
+
     glUseProgram(0);
     renderHUD();
+}
+
+void Game::emitThrusterParticles(float src_x, float src_y, float src_z, float dir_x, float dir_y, float dir_z, float red_val, float green_val, float blue_val) {
+    ThrusterParticle particle;
+    particle.x_pos = src_x;
+    particle.y_pos = src_y;
+    particle.z_pos = src_z;
+
+    float random_spread_x = ((rand() % 100) / 100.0f) * 0.4f - 0.2f;
+    float random_spread_y = ((rand() % 100) / 100.0f) * 0.4f - 0.2f;
+    float random_spread_z = ((rand() % 100) / 100.0f) * 0.4f - 0.2f;
+
+    particle.vel_x = dir_x + random_spread_x;
+    particle.vel_y = dir_y + random_spread_y;
+    particle.vel_z = dir_z + random_spread_z;
+
+    particle.initial_life = 0.4f;
+    particle.current_life = 0.4f;
+
+    particle.color_r = red_val;
+    particle.color_g = green_val;
+    particle.color_b = blue_val;
+
+    active_thrusters.push_back(particle);
 }
 
 // Function to spawn a projectile with given start and target positions, damage, and type (bullet or rocket). It calculates the velocity vector based on the direction from the start to the target and normalizes it to a fixed speed. The projectile is then added to the list of active bullets to be updated and rendered in the game loop.
@@ -1195,7 +1280,10 @@ void Game::loadModels(std::string root, std::string file, std::vector<VertexData
     std::vector<tinyobj::material_t> mat;
     std::string w, e;
 
-    if (!tinyobj::LoadObj(&attr, &shp, &mat, &w, &e, (root + file).c_str(), root.c_str())) return;
+    if (!tinyobj::LoadObj(&attr, &shp, &mat, &w, &e, (root + file).c_str(), root.c_str())) {
+        MessageBoxA(NULL, ("CRITICAL: Could not load " + (root + file)).c_str(), "ERROR", MB_OK | MB_ICONERROR);
+        return;
+    }
 
     for (const auto& s : shp) {
         size_t off = 0;

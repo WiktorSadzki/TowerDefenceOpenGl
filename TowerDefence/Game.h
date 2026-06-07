@@ -35,6 +35,20 @@ struct TextureBundle {
 	GLuint height = 0;
 };
 
+struct ThrusterParticle {
+    float x_pos;
+    float y_pos;
+    float z_pos;
+    float vel_x;
+    float vel_y;
+    float vel_z;
+    float current_life;
+    float initial_life;
+    float color_r;
+    float color_g;
+    float color_b;
+};
+
 // Stores GPU handles
 struct MeshBuffer {
     GLuint vao = 0;
@@ -180,6 +194,9 @@ public:
     MeshBuffer groundBuf;
     MeshBuffer roadBuf;
     MeshBuffer circleBuf;
+
+    std::vector<ThrusterParticle> active_thrusters;
+    void emitThrusterParticles(float src_x, float src_y, float src_z, float dir_x, float dir_y, float dir_z, float red_val, float green_val, float blue_val);
 
     void init();
     void update(float delta_step);
