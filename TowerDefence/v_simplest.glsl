@@ -16,10 +16,16 @@ out vec4 vPos;
 out vec3 vViewDir;
 out vec2 vTexCoord;
 out vec3 vViewDirTangent;
+out vec3 vTangentEye;
+out vec3 vWorldPos;
 
 void main() {
     vColor = vec4(inColor, 1.0);
     vTexCoord = inTexCoord;
+
+    // Compute and pass world position
+    vec4 worldPos = M * vec4(inPosition, 1.0);
+    vWorldPos = worldPos.xyz;
 
     mat4 MV = V * M;
     vec4 eyeSpacePos = MV * vec4(inPosition, 1.0);
@@ -35,13 +41,12 @@ void main() {
 
     vViewDir = -eyeSpacePos.xyz;
 
-    // Build TBN in eye space so we can transform the view direction into tangent space
     vec3 N = normalize(mat3(MV) * inNormal);
     vec3 T = normalize(mat3(MV) * inTangent);
-    T = normalize(T - dot(T, N) * N); // keep T perpendicular to N
+    T = normalize(T - dot(T, N) * N); 
+    vTangentEye = T;
     vec3 B = cross(N, T);
 
-    // Transpose of an orthogonal matrix is its inverse, so this transforms from eye space to tangent space
     mat3 TBN_inv = transpose(mat3(T, B, N));
     vViewDirTangent = TBN_inv * normalize(-eyeSpacePos.xyz);
 

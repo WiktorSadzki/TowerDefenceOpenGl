@@ -5,6 +5,7 @@
 #include <fstream>
 #include <sstream>
 #include <cmath>
+#include <algorithm> // Added for std::remove_if
 
 #include <GL/glew.h>
 #include <GLFW/glfw3.h>
@@ -111,27 +112,29 @@ void Game::drawMesh(const MeshBuffer& buf) {
 
 // Flattens indexed road mesh into basic vertex buffer
 static MeshBuffer uploadRoad(const Road& road) {
-    std::vector<VertexData> flat;
-    flat.reserve(road.indices.size());
+    std::vector<VertexData> flattened_vertices;
+    flattened_vertices.reserve(road.indices.size());
     for (unsigned int idx : road.indices) {
         const Vertex& rv = road.vertices[idx];
         VertexData vd{};
         vd.x = rv.Position.x; vd.y = rv.Position.y; vd.z = rv.Position.z;
-        vd.nx = 0; vd.ny = 1; vd.nz = 0; // Road normals are all up since it's flat
-        vd.r = 1; vd.g = 1; vd.b = 1;
+        vd.nx = rv.Normal.x; vd.ny = rv.Normal.y; vd.nz = rv.Normal.z; // Use generated road surface normals
+        vd.r = rv.Color.x; vd.g = rv.Color.y; vd.b = rv.Color.z; // Use generated baseline white colors
         vd.u = rv.TexCoords.x; vd.v = rv.TexCoords.y;
-        vd.tx = 1.0f; vd.ty = 0.0f; vd.tz = 0.0f;
-        flat.push_back(vd);
+        vd.tx = rv.Tangent.x;
+        vd.ty = rv.Tangent.y;
+        vd.tz = rv.Tangent.z;
+        flattened_vertices.push_back(vd);
     }
 
     // Upload the flattened vertex data to the GPU and return the mesh buffer
     MeshBuffer mb;
-    mb.count = (int)flat.size();
+    mb.count = (int)flattened_vertices.size();
     glGenVertexArrays(1, &mb.vao);
     glGenBuffers(1, &mb.vbo);
     glBindVertexArray(mb.vao);
     glBindBuffer(GL_ARRAY_BUFFER, mb.vbo);
-    glBufferData(GL_ARRAY_BUFFER, flat.size() * sizeof(VertexData), flat.data(), GL_STATIC_DRAW);
+    glBufferData(GL_ARRAY_BUFFER, flattened_vertices.size() * sizeof(VertexData), flattened_vertices.data(), GL_STATIC_DRAW);
     const GLsizei stride = sizeof(VertexData);
     glEnableVertexAttribArray(0);
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, stride, (void*)offsetof(VertexData, x));
@@ -243,7 +246,7 @@ void Game::init() {
     active_bullets.clear();
     troops.clear();
     pathWaypoints.clear();
-    selectedType = TowerType::MACHINE_GUN;
+    selectedType;
 
     // Convert road spline points to simple 2D waypoints for troop movement logic, ignoring y since road is flat
     for (const auto& splinePt : game_pathway.splinePoints) {
@@ -484,6 +487,30 @@ void Game::update(float delta_step) {
             it->x += (dx / dist) * moveDist;
             it->z += (dz / dist) * moveDist;
         }
+        
+        if (it->variant == CAR) {
+            for (auto& pt : it->fireTrail) {
+                pt.alpha -= delta_step * 2.5f; // Dissolves completely over ~0.4 seconds
+            }
+
+            it->fireTrail.erase(
+                std::remove_if(it->fireTrail.begin(), it->fireTrail.end(),
+                    [](const TrailPoint& pt) { return pt.alpha <= 0.0f; }),
+                it->fireTrail.end()
+            );
+
+            glm::mat4 carM = glm::mat4(1.0f);
+            carM = glm::translate(carM, glm::vec3(it->x, it->altitude, it->z));
+            carM = glm::rotate(carM, glm::radians(it->rotation_yaw), glm::vec3(0.0f, 1.0f, 0.0f));
+
+            // Transform the local tailpipe offset back out into world space coordinates
+            glm::vec3 currentExhaust = glm::vec3(carM * glm::vec4(0.0f, -0.2f, -1.2f, 1.0f));
+
+            TrailPoint newPt;
+            newPt.position = currentExhaust;
+            newPt.alpha = 1.0f; // Reset back to max initial flame glow
+            it->fireTrail.push_back(newPt);
+        }
 
         // Subtract health if reached end of path, and remove troop from list
         if (it->currentWaypoint >= (int)pathWaypoints.size()) {
@@ -711,6 +738,8 @@ void Game::render(glm::mat4 P, glm::mat4 V) {
     glUniformMatrix4fv(glGetUniformLocation(shader_id, "P"), 1, GL_FALSE, glm::value_ptr(P));
     glUniformMatrix4fv(glGetUniformLocation(shader_id, "V"), 1, GL_FALSE, glm::value_ptr(V));
 
+    GLint useWorldUVLoc = glGetUniformLocation(shader_id, "useWorldUV");
+
     // Global directional light for the sun, transformed into view space. This is a simple directional light coming from a fixed direction in world space, which we transform by the view matrix to get the light direction in eye space for the shader.
     glm::vec3 sunDir = glm::normalize(glm::vec3(0.5f, 1.0f, 0.5f));
     glm::vec3 eyeSun = glm::mat3(V) * sunDir;
@@ -725,13 +754,83 @@ void Game::render(glm::mat4 P, glm::mat4 V) {
     // Bullet lighting effect: if there are active bullets, set shader uniforms to enable a bright point light at the position of the first bullet. This creates a simple lighting effect for projectiles, making them appear brighter and more visible as they move through the scene. We transform the bullet position into view space for the shader.
     if (!active_bullets.empty()) {
         glUniform1f(glGetUniformLocation(shader_id, "bulletActive"), 1.0f);
-        glm::vec3 viewBulletPos = glm::vec3(V * glm::vec4(active_bullets[0].x, active_bullets[0].y, active_bullets[0].z, 1.0f));
+
+        glm::vec4 viewBulletPos = V * glm::vec4(active_bullets[0].x, active_bullets[0].y, active_bullets[0].z, 1.0f);
+
         glUniform3f(glGetUniformLocation(shader_id, "bulletPos"), viewBulletPos.x, viewBulletPos.y, viewBulletPos.z);
         glUniform3f(glGetUniformLocation(shader_id, "bulletColor"), 1.0f, 0.8f, 0.2f);
     }
     else {
         glUniform1f(glGetUniformLocation(shader_id, "bulletActive"), 0.0f);
     }
+
+    // Collect active tailpipe fire lights from all spawned cars into a uniform array loop pool
+    int activeTrailCount = 0;
+
+    for (const auto& troop : troops) {
+        if (troop.variant == TroopType::TANK) {
+            if (activeTrailCount >= 8) break;
+
+            std::string posUniformName = "trailPositions[" + std::to_string(activeTrailCount) + "]";
+            std::string intUniformName = "trailIntensities[" + std::to_string(activeTrailCount) + "]";
+
+            float rad = glm::radians(troop.rotation_yaw);
+            glm::vec3 forward(sinf(rad), 0.0f, cosf(rad));
+
+            float exhaustOffset = 3.0f;
+            glm::vec3 worldTrailPos(
+                troop.x - forward.x * exhaustOffset,
+                troop.altitude + 2.0f,
+                troop.z - forward.z * exhaustOffset
+            );
+
+            glm::vec4 viewTrailPos = V * glm::vec4(worldTrailPos, 1.0f);
+
+            float flicker = 0.8f + 0.2f * sinf((float)glfwGetTime() * 30.0f + activeTrailCount);
+            float finalIntensity = 5.0f * flicker;
+
+            glUniform3f(glGetUniformLocation(shader_id, posUniformName.c_str()), viewTrailPos.x, viewTrailPos.y, viewTrailPos.z);
+            glUniform1f(glGetUniformLocation(shader_id, intUniformName.c_str()), finalIntensity);
+
+            activeTrailCount++;
+        }
+    }
+
+    glUniform1i(glGetUniformLocation(shader_id, "activeTrailLights"), activeTrailCount);
+
+    int activeRocketCount = 0;
+
+    for (const auto& b : active_bullets) {
+        if (b.isRocket) {
+            if (activeRocketCount >= 8) break; // Cap at 8 lights maximum
+
+            std::string posUniformName = "rocketPositions[" + std::to_string(activeRocketCount) + "]";
+            std::string intUniformName = "rocketIntensities[" + std::to_string(activeRocketCount) + "]";
+
+            // Calculate direction vector to place light slightly BEHIND the rocket
+            float spd = sqrtf(b.vx * b.vx + b.vy * b.vy + b.vz * b.vz);
+            if (spd < 0.01f) spd = 1.0f;
+
+            float exhaustOffset = 0.1f; // How far behind the rocket center the flame is
+
+            glm::vec3 rocketExhaustPos(
+                b.x - (b.vx / spd) * exhaustOffset,
+                b.y - (b.vy / spd) * exhaustOffset,
+                b.z - (b.vz / spd) * exhaustOffset
+            );
+
+            glm::vec4 viewRocketPos = V * glm::vec4(rocketExhaustPos, 1.0f);
+
+            float flicker = 0.7f + 0.3f * sinf((float)glfwGetTime() * 90.0f + activeRocketCount);
+            float finalIntensity = 10.0f * flicker; // Higher intensity value for a bright engine flare
+
+            glUniform3f(glGetUniformLocation(shader_id, posUniformName.c_str()), viewRocketPos.x, viewRocketPos.y, viewRocketPos.z);
+            glUniform1f(glGetUniformLocation(shader_id, intUniformName.c_str()), finalIntensity);
+
+            activeRocketCount++;
+        }
+    }
+    glUniform1i(glGetUniformLocation(shader_id, "activeRocketLights"), activeRocketCount);
 
     // Shadow rendering: we use a simple planar shadow technique by applying a shadow projection matrix to the models when rendering the shadows. This creates a flat shadow on the ground that roughly corresponds to the shape of the model, without needing complex shadow mapping. We also set shader uniforms to render the shadows with a dark color and some transparency.
     const float sdx = 0.5f, sdy = 1.0f, sdz = 0.5f;
@@ -743,12 +842,14 @@ void Game::render(glm::mat4 P, glm::mat4 V) {
     };
     glm::mat4 identityModel(1.0f);
 
+    glUniform1f(useWorldUVLoc, 1.0f);
+
     // For the ground plane, we want to use a fixed TBN (tangent, bitangent, normal) basis that is aligned with the world axes, since the ground is flat and we want the normal mapping to be consistent regardless of the view direction. We calculate the tangent and bitangent vectors in view space and pass them as uniforms to the shader, along with a flag to indicate that we want to use the fixed TBN for the ground rendering.
     glm::vec3 eyeT = glm::normalize(glm::vec3(V * glm::vec4(1, 0, 0, 0)));
     glm::vec3 eyeB = glm::normalize(glm::vec3(V * glm::vec4(0, 0, 1, 0)));
     glUniform3f(glGetUniformLocation(shader_id, "fixedTangent"), eyeT.x, eyeT.y, eyeT.z);
     glUniform3f(glGetUniformLocation(shader_id, "fixedBitangent"), eyeB.x, eyeB.y, eyeB.z);
-    glUniform1f(glGetUniformLocation(shader_id, "useFixedTBN"), 1.0f);
+    glUniform1f(glGetUniformLocation(shader_id, "useFixedTBN"), 2.0f);
 
     // Render the ground plane and road with their respective textures, using the fixed TBN for correct normal mapping. We set a uniform to scale the texture coordinates for the road to make it tile properly, and then reset it after rendering.
     setModel(shader_id, V, identityModel);
@@ -760,11 +861,12 @@ void Game::render(glm::mat4 P, glm::mat4 V) {
 
     // Render the road with a different texture and a tiling factor for the texture coordinates, to make the road texture repeat along its length. We use the same fixed TBN for the road since it's also flat, and then reset it after rendering.
     setModel(shader_id, V, identityModel);
-    glUniform1f(glGetUniformLocation(shader_id, "texBlendScale"), 4.3f);
     bindTextures(shader_id, pathTex);
     drawMesh(roadBuf);
     unbindTextures(shader_id);
     glUniform1f(glGetUniformLocation(shader_id, "texBlendScale"), 0.0f);
+
+    glUniform1f(useWorldUVLoc, 0.0f);
 
     // Render shadows for towers and troops using the shadow projection matrix, with blending and stencil operations to create a simple planar shadow effect. 
     // We disable depth testing and enable blending to render the shadows as transparent dark shapes on the ground, and use the stencil buffer to avoid rendering shadows on top of each other for better visual clarity.
@@ -1053,7 +1155,10 @@ void Game::renderHUD() {
 }
 
 void Game::selectTowerType(int i) {
-    if (i >= 0 && i <= 2) selectedType = (TowerType)i;
+    if (i >= 0 && i <= 2) {
+        selectedType = (TowerType)i;
+        ghostType = (TowerType)i;
+    }
 
     isBuilding = true;
 }

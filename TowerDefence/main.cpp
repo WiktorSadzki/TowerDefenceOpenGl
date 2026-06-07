@@ -241,29 +241,32 @@ int main(int argc, char** argv) {
         if (!g_game.gameOver && !g_game.paused)
             g_game.update(frame_delta * g_game.gameSpeed);
 
-		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT); // Clear the screen and depth buffer for the new frame
+        if (win_w > 0 && win_h > 0) {
+            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT); // Clear the screen and depth buffer
 
-		// Projection matrix setup for 3D rendering with a perspective projection
-        glm::mat4 P = glm::perspective(glm::radians(45.0f), (float)win_w / (float)win_h, 0.1f, 200.0f);
-        
-        float pitchRad = glm::radians(g_camera.angleX);
-        float yawRad = glm::radians(g_camera.angleY);
+            // Projection matrix setup for 3D rendering with a perspective projection
+            glm::mat4 P = glm::perspective(glm::radians(45.0f), (float)win_w / (float)win_h, 0.1f, 200.0f);
 
-        glm::vec3 camera_target = glm::vec3(g_camera.cx, 0.0f, g_camera.cz);
+            float pitchRad = glm::radians(g_camera.angleX);
+            float yawRad = glm::radians(g_camera.angleY);
 
-		// Calculate camera eye position in spherical coordinates based on camera angles and zoom level, looking at the target point on the ground
-        float eyeX = camera_target.x - g_camera.zoom * sin(yawRad) * cos(pitchRad);
-        float eyeY = camera_target.y + g_camera.zoom * sin(pitchRad);
-        float eyeZ = camera_target.z + g_camera.zoom * cos(yawRad) * cos(pitchRad);
+            glm::vec3 camera_target = glm::vec3(g_camera.cx, 0.0f, g_camera.cz);
 
-        glm::vec3 camera_eye = glm::vec3(eyeX, eyeY, eyeZ);
+            // Calculate camera eye position
+            float eyeX = camera_target.x - g_camera.zoom * sin(yawRad) * cos(pitchRad);
+            float eyeY = camera_target.y + g_camera.zoom * sin(pitchRad);
+            float eyeZ = camera_target.z + g_camera.zoom * cos(yawRad) * cos(pitchRad);
 
-		// View matrix setup using glm::lookAt to create a view transformation from the camera's eye position to the target point, with an up vector pointing upwards
-        glm::mat4 V = glm::lookAt(camera_eye, camera_target, glm::vec3(0.0f, 1.0f, 0.0f));
+            glm::vec3 camera_eye = glm::vec3(eyeX, eyeY, eyeZ);
 
-        g_game.render(P, V);
+            // View matrix setup
+            glm::mat4 V = glm::lookAt(camera_eye, camera_target, glm::vec3(0.0f, 1.0f, 0.0f));
 
-        glfwSwapBuffers(window);
+            g_game.render(P, V); // Located in game.cpp
+
+            glfwSwapBuffers(window);
+        }
+
         glfwPollEvents();
     }
 

@@ -42,6 +42,11 @@ struct MeshBuffer {
     int    count = 0;
 };
 
+struct TrailPoint {
+    glm::vec3 position;
+    float alpha; // 1.0 = brand new/bright, 0.0 = completely faded out
+};
+
 // Connects meshes to their textures + offsets
 struct TowerGeometry {
     std::vector<VertexData> base_mesh;
@@ -84,6 +89,8 @@ struct Troop {
     float health = 100.0f, speed = 8.0f;
     int currentWaypoint = 0;
     TroopType variant = CAR;
+
+    std::vector<TrailPoint> fireTrail;
 };
 
 // Connects troop meshes with textures 
