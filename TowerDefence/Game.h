@@ -21,6 +21,7 @@ struct VertexData {
     float nx, ny, nz; // Normals
     float r, g, b; // Vertex colors
     float u, v; // UVs textures
+	float tx, tz, ty; // Tangents for normal mapping
 };
 
 // Group texture for the same model
@@ -31,6 +32,7 @@ struct TextureBundle {
     GLuint roughness = 0;
     GLuint emissive = 0;
     GLuint ao = 0;
+	GLuint height = 0;
 };
 
 // Stores GPU handles
